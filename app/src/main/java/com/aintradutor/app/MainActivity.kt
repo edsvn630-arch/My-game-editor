@@ -1,7 +1,12 @@
 package com.aintradutor.app
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -14,16 +19,15 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.media.projection.MediaProjectionManager
 
 class MainActivity : AppCompatActivity() {
 
-    private var ain: AinFile? = null
-    private var originals: Array<String> = emptyArray()
-    private var trans: Array<String?> = arrayOfNulls(0)
     private var shown: List<Int> = emptyList()
 
     private lateinit var adapter: Adapter
@@ -44,6 +48,21 @@ class MainActivity : AppCompatActivity() {
     private val saveCsv = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) exportCsv(uri)
     }
+    private val requestNotif = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        askCapture()
+    }
+    private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val data = r.data
+        if (r.resultCode == RESULT_OK && data != null) {
+            val i = Intent(this, LiveService::class.java)
+            i.putExtra("code", r.resultCode)
+            i.putExtra("data", data)
+            ContextCompat.startForegroundService(this, i)
+            toast("Modo ao vivo ligado. Abra o jogo e toque no botão azul \"Aa\".")
+        } else {
+            toast("Captura de tela não autorizada")
+        }
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
@@ -52,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         adapter = Adapter()
+        Store.loadPrefs(applicationContext)
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
@@ -69,18 +89,22 @@ class MainActivity : AppCompatActivity() {
         val row1 = LinearLayout(this)
         row1.addView(btn("Abrir .ain") { openAin.launch(arrayOf("*/*")) })
         row1.addView(btn("Salvar .ain") {
-            if (ain == null) toast("Abra um .ain primeiro") else saveAin.launch("Rance01_PT.ain")
+            if (Store.ain == null) toast("Abra um .ain primeiro") else saveAin.launch("Rance01_PT.ain")
         })
         root.addView(row1)
 
         val row2 = LinearLayout(this)
         row2.addView(btn("Importar CSV") {
-            if (ain == null) toast("Abra um .ain primeiro") else openCsv.launch(arrayOf("*/*"))
+            if (Store.ain == null) toast("Abra um .ain primeiro") else openCsv.launch(arrayOf("*/*"))
         })
         row2.addView(btn("Exportar CSV") {
-            if (ain == null) toast("Abra um .ain primeiro") else saveCsv.launch("falas.csv")
+            if (Store.ain == null) toast("Abra um .ain primeiro") else saveCsv.launch("falas.csv")
         })
         root.addView(row2)
+
+        val row2b = LinearLayout(this)
+        row2b.addView(btn("Modo ao vivo (sobre o jogo)") { startLive() })
+        root.addView(row2b)
 
         val row3 = LinearLayout(this)
         row3.gravity = android.view.Gravity.CENTER_VERTICAL
@@ -93,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         etLimit = EditText(this)
         etLimit.hint = "Limite"
         etLimit.inputType = InputType.TYPE_CLASS_NUMBER
-        etLimit.setText("50")
+        etLimit.setText(Store.globalLimit.toString())
         etLimit.layoutParams = LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT)
         row3.addView(etLimit)
         root.addView(row3)
@@ -116,10 +140,52 @@ class MainActivity : AppCompatActivity() {
         root.addView(rv)
 
         etSearch.doAfterTextChanged { refresh() }
-        etLimit.doAfterTextChanged { adapter.notifyDataSetChanged() }
+        etLimit.doAfterTextChanged {
+            Store.globalLimit = limit()
+            Store.savePrefs(applicationContext)
+            adapter.notifyDataSetChanged()
+        }
         cbOnly.setOnCheckedChangeListener { _, _ -> refresh() }
 
         setContentView(root)
+
+        // recupera o último projeto, se o app foi fechado
+        Thread {
+            if (Store.ain == null && Store.restore(applicationContext)) {
+                runOnUiThread { refresh() }
+            }
+        }.start()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refresh() // traduções feitas no modo ao vivo aparecem aqui
+    }
+
+    // ---------- modo ao vivo ----------
+
+    private fun startLive() {
+        if (Store.ain == null) {
+            toast("Abra um .ain primeiro")
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            toast("Ative \"Aparecer sobre outros apps\" para o Ain Tradutor e toque de novo em Modo ao vivo")
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotif.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            askCapture()
+        }
+    }
+
+    private fun askCapture() {
+        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        captureLauncher.launch(mpm.createScreenCaptureIntent())
     }
 
     // ---------- abrir / salvar ----------
@@ -129,14 +195,8 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val data = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-                val f = AinFile.parse(data)
-                val o = Array(f.originals.size) { String(f.originals[it], AinFile.CP932) }
-                runOnUiThread {
-                    ain = f
-                    originals = o
-                    trans = arrayOfNulls(o.size)
-                    refresh()
-                }
+                Store.load(applicationContext, data)
+                runOnUiThread { refresh() }
             } catch (e: Throwable) {
                 runOnUiThread {
                     status.text = "Erro ao abrir"
@@ -147,9 +207,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveAinTo(uri: Uri) {
-        val f = ain ?: return
+        val f = Store.ain ?: return
         status.text = "Salvando..."
-        val snapshot = trans.copyOf()
+        val snapshot = Store.trans.copyOf()
         Thread {
             try {
                 val bytes = f.build(snapshot)
@@ -179,10 +239,11 @@ class MainActivity : AppCompatActivity() {
                 for (r in rows) {
                     val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
                     val t = r.getOrNull(2) ?: continue
-                    if (id < 0 || id >= trans.size || t.isEmpty()) continue
-                    trans[id] = t
+                    if (id < 0 || id >= Store.trans.size || t.isEmpty()) continue
+                    Store.setTrans(id, t)
                     count++
                 }
+                Store.persist(applicationContext)
                 runOnUiThread {
                     refresh()
                     toast("$count falas importadas")
@@ -201,11 +262,11 @@ class MainActivity : AppCompatActivity() {
             try {
                 val sb = StringBuilder("\uFEFF")
                 sb.append("ID,Original,Traducao\n")
-                for (i in originals.indices) {
-                    if (originals[i].isEmpty()) continue
+                for (i in Store.originals.indices) {
+                    if (Store.originals[i].isEmpty()) continue
                     sb.append(i).append(',')
-                        .append(Csv.escape(originals[i])).append(',')
-                        .append(Csv.escape(trans[i] ?: "")).append('\n')
+                        .append(Csv.escape(Store.originals[i])).append(',')
+                        .append(Csv.escape(Store.trans[i] ?: "")).append('\n')
                 }
                 contentResolver.openOutputStream(uri, "wt")!!.use { it.write(sb.toString().toByteArray(Charsets.UTF_8)) }
                 runOnUiThread { toast("CSV exportado") }
@@ -218,6 +279,8 @@ class MainActivity : AppCompatActivity() {
     // ---------- lista ----------
 
     private fun refresh() {
+        val originals = Store.originals
+        val trans = Store.trans
         val q = etSearch.text.toString().trim()
         val only = cbOnly.isChecked
         val list = ArrayList<Int>()
@@ -235,7 +298,7 @@ class MainActivity : AppCompatActivity() {
         shown = list
         adapter.notifyDataSetChanged()
         val done = trans.count { it != null }
-        status.text = if (ain == null) {
+        status.text = if (Store.ain == null) {
             "Abra um arquivo .ain"
         } else {
             "${shown.size} exibidas • $done traduzidas de ${originals.size}"
@@ -248,37 +311,55 @@ class MainActivity : AppCompatActivity() {
         box.setPadding(dp(20), dp(8), dp(20), 0)
 
         val orig = TextView(this)
-        orig.text = originals[i]
+        orig.text = Store.originals[i]
         orig.textSize = 15f
         box.addView(orig)
 
         val et = EditText(this)
         et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        et.setText(trans[i] ?: originals[i])
+        et.setText(Store.trans[i] ?: Store.originals[i])
         et.setSelection(et.text.length)
         box.addView(et)
 
+        val row = LinearLayout(this)
+        row.gravity = android.view.Gravity.CENTER_VERTICAL
         val counter = TextView(this)
-        box.addView(counter)
+        counter.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        row.addView(counter)
+        val lbl = TextView(this)
+        lbl.text = "Limite desta fala:"
+        lbl.textSize = 12f
+        row.addView(lbl)
+        val etLim = EditText(this)
+        etLim.inputType = InputType.TYPE_CLASS_NUMBER
+        etLim.hint = Store.globalLimit.toString()
+        if (Store.limits[i] > 0) etLim.setText(Store.limits[i].toString())
+        etLim.layoutParams = LinearLayout.LayoutParams(dp(70), ViewGroup.LayoutParams.WRAP_CONTENT)
+        row.addView(etLim)
+        box.addView(row)
+
         fun updateCounter() {
-            val lim = limit()
+            val lim = etLim.text.toString().trim().toIntOrNull() ?: Store.globalLimit
             val n = et.text.length
             counter.text = if (lim > 0) "$n / $lim" else "$n"
             counter.setTextColor(if (lim > 0 && n > lim) 0xFFD32F2F.toInt() else 0xFF777777.toInt())
         }
         et.doAfterTextChanged { updateCounter() }
+        etLim.doAfterTextChanged { updateCounter() }
         updateCounter()
 
         AlertDialog.Builder(this)
             .setTitle("Fala #$i")
             .setView(box)
             .setPositiveButton("Salvar") { _, _ ->
-                val s = et.text.toString()
-                trans[i] = if (s.isEmpty() || s == originals[i]) null else s
+                Store.setLimit(i, etLim.text.toString().trim().toIntOrNull() ?: 0)
+                Store.setTrans(i, et.text.toString())
+                Store.persistAsync(applicationContext)
                 refresh()
             }
             .setNeutralButton("Limpar") { _, _ ->
-                trans[i] = null
+                Store.trans[i] = null
+                Store.persistAsync(applicationContext)
                 refresh()
             }
             .setNegativeButton("Cancelar", null)
@@ -310,14 +391,14 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val i = shown[position]
-            val t = trans[i]
-            val lim = limit()
-            holder.a.text = "#$i  ${originals[i]}"
+            val t = Store.trans[i]
+            val lim = Store.limitOf(i)
+            holder.a.text = "#$i  ${Store.originals[i]}"
             if (t == null) {
                 holder.b.text = "(toque para traduzir)"
                 holder.b.setTextColor(0xFF999999.toInt())
             } else {
-                holder.b.text = t
+                holder.b.text = if (lim > 0) "$t  [${t.length}/$lim]" else t
                 val over = lim > 0 && t.length > lim
                 holder.b.setTextColor(if (over) 0xFFD32F2F.toInt() else 0xFF2E7D32.toInt())
             }
