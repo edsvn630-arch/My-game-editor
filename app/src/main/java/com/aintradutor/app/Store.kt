@@ -10,6 +10,8 @@ object Store {
     var trans: Array<String?> = arrayOfNulls(0)
     var limits: IntArray = IntArray(0) // limite individual por fala (0 = usa o limite geral)
     var globalLimit: Int = 50
+    var undo: Array<String?>? = null // cópia das traduções antes do último reajuste
+    var stripAccents: Boolean = true // remover acentos e ç ao salvar o .ain
 
     private var index: HashMap<String, ArrayList<Int>>? = null
     private var keys: Array<String> = emptyArray()
@@ -19,6 +21,7 @@ object Store {
         originals = Array(f.originals.size) { String(f.originals[it], AinFile.CP932) }
         trans = arrayOfNulls(originals.size)
         limits = IntArray(originals.size)
+        undo = null
         index = null
     }
 
@@ -91,11 +94,16 @@ object Store {
     }
 
     fun loadPrefs(ctx: Context) {
-        globalLimit = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE).getInt("limit", 50)
+        val p = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE)
+        globalLimit = p.getInt("limit", 50)
+        stripAccents = p.getBoolean("strip", true)
     }
 
     fun savePrefs(ctx: Context) {
-        ctx.getSharedPreferences("ain", Context.MODE_PRIVATE).edit().putInt("limit", globalLimit).apply()
+        ctx.getSharedPreferences("ain", Context.MODE_PRIVATE).edit()
+            .putInt("limit", globalLimit)
+            .putBoolean("strip", stripAccents)
+            .apply()
     }
 
     /** Guarda uma tradução, devolvendo aspas/crase/espaço do início e aspas do fim se faltarem. */

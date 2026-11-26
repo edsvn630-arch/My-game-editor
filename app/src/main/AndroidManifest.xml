@@ -28,6 +28,11 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize" />
 
+        <activity
+            android:name=".ProblemsActivity"
+            android:exported="false"
+            android:label="Problemas e reajuste" />
+
         <service
             android:name=".LiveService"
             android:exported="false"

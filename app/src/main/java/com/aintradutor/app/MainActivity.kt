@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -35,6 +36,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSearch: EditText
     private lateinit var etLimit: EditText
     private lateinit var cbOnly: CheckBox
+    private lateinit var cbStrip: CheckBox
+    private var bar: FastScrollBar? = null
 
     private val openAin = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadAin(uri)
@@ -104,6 +107,9 @@ class MainActivity : AppCompatActivity() {
 
         val row2b = LinearLayout(this)
         row2b.addView(btn("Modo ao vivo (sobre o jogo)") { startLive() })
+        row2b.addView(btn("Problemas e reajuste") {
+            if (Store.ain == null) toast("Abra um .ain primeiro") else startActivity(Intent(this, ProblemsActivity::class.java))
+        })
         root.addView(row2b)
 
         val row3 = LinearLayout(this)
@@ -127,6 +133,12 @@ class MainActivity : AppCompatActivity() {
         cbOnly.setPadding(dp(8), 0, dp(8), 0)
         root.addView(cbOnly)
 
+        cbStrip = CheckBox(this)
+        cbStrip.text = "Remover acentos e ç ao salvar o .ain"
+        cbStrip.setPadding(dp(8), 0, dp(8), 0)
+        cbStrip.isChecked = Store.stripAccents
+        root.addView(cbStrip)
+
         status = TextView(this)
         status.setPadding(dp(12), dp(4), dp(12), dp(4))
         status.text = "Abra um arquivo .ain"
@@ -136,8 +148,15 @@ class MainActivity : AppCompatActivity() {
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = adapter
         rv.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
-        rv.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        root.addView(rv)
+        val frame = FrameLayout(this)
+        frame.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        rv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        frame.addView(rv)
+        val fastBar = FastScrollBar(this, rv) { pos -> if (pos in shown.indices) "#${shown[pos]}" else "" }
+        fastBar.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        frame.addView(fastBar)
+        bar = fastBar
+        root.addView(frame)
 
         etSearch.doAfterTextChanged { refresh() }
         etLimit.doAfterTextChanged {
@@ -146,6 +165,10 @@ class MainActivity : AppCompatActivity() {
             adapter.notifyDataSetChanged()
         }
         cbOnly.setOnCheckedChangeListener { _, _ -> refresh() }
+        cbStrip.setOnCheckedChangeListener { _, checked ->
+            Store.stripAccents = checked
+            Store.savePrefs(applicationContext)
+        }
 
         setContentView(root)
 
@@ -210,9 +233,10 @@ class MainActivity : AppCompatActivity() {
         val f = Store.ain ?: return
         status.text = "Salvando..."
         val snapshot = Store.trans.copyOf()
+        val strip = Store.stripAccents
         Thread {
             try {
-                val bytes = f.build(snapshot)
+                val bytes = f.build(snapshot, strip)
                 contentResolver.openOutputStream(uri, "wt")!!.use { it.write(bytes) }
                 runOnUiThread {
                     refresh()
@@ -297,6 +321,7 @@ class MainActivity : AppCompatActivity() {
         }
         shown = list
         adapter.notifyDataSetChanged()
+        bar?.invalidate()
         val done = trans.count { it != null }
         status.text = if (Store.ain == null) {
             "Abra um arquivo .ain"

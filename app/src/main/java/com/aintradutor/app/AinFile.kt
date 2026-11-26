@@ -20,12 +20,12 @@ class AinFile private constructor(
 ) {
 
     /** Monta um .ain novo. translations[i] == null/vazio mantém a fala original. */
-    fun build(translations: Array<String?>): ByteArray {
+    fun build(translations: Array<String?>, strip: Boolean = true): ByteArray {
         val out = ByteArrayOutputStream(raw.size + 1_000_000)
         out.write(raw, 0, msgStart + 8)
         for (i in originals.indices) {
             val t = translations[i]
-            out.write(if (t.isNullOrEmpty()) originals[i] else encode(t))
+            out.write(if (t.isNullOrEmpty()) originals[i] else encode(t, strip))
             out.write(0)
         }
         out.write(raw, msgEnd, raw.size - msgEnd)
@@ -133,6 +133,7 @@ class AinFile private constructor(
             return sb.toString()
         }
 
-        fun encode(s: String): ByteArray = stripAccents(s).toByteArray(CP932)
+        fun encode(s: String, strip: Boolean = true): ByteArray =
+            (if (strip) stripAccents(s) else s).toByteArray(CP932)
     }
 }
