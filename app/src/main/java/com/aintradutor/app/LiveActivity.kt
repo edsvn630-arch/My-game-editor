@@ -194,10 +194,10 @@ class LiveActivity : AppCompatActivity() {
     private fun suggest() {
         if (Store.originals.isEmpty()) return
         val idxs = ArrayList(shownIdx)
-        Toast.makeText(this, "Traduzindo... (na primeira vez baixa o modelo, precisa de internet)", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Traduzindo com o Google Tradutor...", Toast.LENGTH_LONG).show()
         Thread {
             try {
-                Auto.ensureModel()
+                Auto.ensureReady()
                 val seen = HashSet<Int>()
                 var n = 0
                 for (i in idxs) {
@@ -214,7 +214,7 @@ class LiveActivity : AppCompatActivity() {
                 }
             } catch (e: Throwable) {
                 runOnUiThread {
-                    Toast.makeText(this, "Erro: ${e.message}. Confira a internet (a primeira vez baixa o modelo).", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Erro: ${e.message}. Confira a conexão com a internet.", Toast.LENGTH_LONG).show()
                 }
             }
         }.start()

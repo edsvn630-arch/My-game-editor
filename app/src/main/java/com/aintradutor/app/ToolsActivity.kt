@@ -123,11 +123,10 @@ class ToolsActivity : AppCompatActivity() {
         root.addView(repInfo)
 
         // ---------- tradução automática ----------
-        root.addView(heading("Tradução automática (inglês → português)"))
+        root.addView(heading("Tradução automática (Google Tradutor)"))
         val explain3 = TextView(this)
-        explain3.text = "Traduz no aparelho os trechos que ainda não têm nenhuma tradução e deixa como rascunho para " +
-            "você revisar (aparecem em laranja e em Problemas e reajuste). Na primeira vez baixa o modelo " +
-            "(~30 MB) e precisa de internet."
+        explain3.text = "Traduz com o Google Tradutor os trechos que ainda não têm nenhuma tradução e deixa como " +
+            "rascunho para você revisar (aparecem em laranja e em Problemas e reajuste). Precisa de internet."
         explain3.textSize = 13f
         root.addView(explain3)
 
@@ -247,10 +246,10 @@ class ToolsActivity : AppCompatActivity() {
         val count = etCount.text.toString().trim().toIntOrNull() ?: 100
         stopFlag = false
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        autoInfo.text = "Preparando o modelo de tradução (na primeira vez baixa ~30 MB)..."
+        autoInfo.text = "Conectando ao Google Tradutor..."
         Thread {
             try {
-                Auto.ensureModel()
+                Auto.ensureReady()
                 val todo = ArrayList<IntArray>()
                 for (u in Store.units()) {
                     if (u[0] < from) continue
@@ -280,7 +279,7 @@ class ToolsActivity : AppCompatActivity() {
                 }
             } catch (e: Throwable) {
                 runOnUiThread {
-                    autoInfo.text = "Erro: ${e.message}. Se for a primeira vez, confira a internet para baixar o modelo."
+                    autoInfo.text = "Erro: ${e.message}. Confira a conexão com a internet e tente de novo."
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
