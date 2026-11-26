@@ -3,6 +3,7 @@ package com.aintradutor.app
 import android.os.Bundle
 import android.text.InputType
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -21,6 +22,12 @@ class ToolsActivity : AppCompatActivity() {
     private lateinit var cbCase: CheckBox
     private lateinit var cbWhole: CheckBox
     private lateinit var repInfo: TextView
+    private lateinit var etFrom: EditText
+    private lateinit var etCount: EditText
+    private lateinit var autoInfo: TextView
+
+    @Volatile
+    private var stopFlag = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
@@ -115,6 +122,33 @@ class ToolsActivity : AppCompatActivity() {
         repInfo.setPadding(0, dp(4), 0, 0)
         root.addView(repInfo)
 
+        // ---------- tradução automática ----------
+        root.addView(heading("Tradução automática (inglês → português)"))
+        val explain3 = TextView(this)
+        explain3.text = "Traduz no aparelho os trechos que ainda não têm nenhuma tradução e deixa como rascunho para " +
+            "você revisar (aparecem em laranja e em Problemas e reajuste). Na primeira vez baixa o modelo " +
+            "(~30 MB) e precisa de internet."
+        explain3.textSize = 13f
+        root.addView(explain3)
+
+        etFrom = edit("A partir da fala #")
+        etFrom.inputType = InputType.TYPE_CLASS_NUMBER
+        etFrom.setText("0")
+        root.addView(etFrom)
+        etCount = edit("Quantidade de trechos")
+        etCount.inputType = InputType.TYPE_CLASS_NUMBER
+        etCount.setText("100")
+        root.addView(etCount)
+
+        val rowAuto = LinearLayout(this)
+        rowAuto.addView(btn("Traduzir") { autoRun() })
+        rowAuto.addView(btn("Parar") { stopFlag = true })
+        root.addView(rowAuto)
+
+        autoInfo = TextView(this)
+        autoInfo.setPadding(0, dp(4), 0, 0)
+        root.addView(autoInfo)
+
         val scroll = ScrollView(this)
         scroll.addView(root)
         setContentView(scroll)
@@ -201,6 +235,54 @@ class ToolsActivity : AppCompatActivity() {
                 toast("$n falas alteradas. Confira em Problemas e reajuste se alguma passou do limite.")
                 repInfo.text = ""
                 analyzeDup()
+            }
+        }.start()
+    }
+
+    // ---------- tradução automática ----------
+
+    private fun autoRun() {
+        if (!need()) return
+        val from = etFrom.text.toString().trim().toIntOrNull() ?: 0
+        val count = etCount.text.toString().trim().toIntOrNull() ?: 100
+        stopFlag = false
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        autoInfo.text = "Preparando o modelo de tradução (na primeira vez baixa ~30 MB)..."
+        Thread {
+            try {
+                Auto.ensureModel()
+                val todo = ArrayList<IntArray>()
+                for (u in Store.units()) {
+                    if (u[0] < from) continue
+                    if (u.all { Store.trans[it] == null }) {
+                        todo.add(u)
+                        if (todo.size >= count) break
+                    }
+                }
+                var done = 0
+                for (u in todo) {
+                    if (stopFlag) break
+                    Auto.translateUnit(u)
+                    done++
+                    if (done % 5 == 0) {
+                        val progress = done
+                        runOnUiThread { autoInfo.text = "Traduzindo... $progress / ${todo.size}" }
+                    }
+                    if (done % 50 == 0) Store.persist(applicationContext)
+                }
+                Store.persist(applicationContext)
+                val total = done
+                runOnUiThread {
+                    autoInfo.text = "Pronto: $total trechos traduzidos como rascunho. " +
+                        "Revise em Problemas e reajuste > Rascunho automático."
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    analyzeDup()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    autoInfo.text = "Erro: ${e.message}. Se for a primeira vez, confira a internet para baixar o modelo."
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
             }
         }.start()
     }

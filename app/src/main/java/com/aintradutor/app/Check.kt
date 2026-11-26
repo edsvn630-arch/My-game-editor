@@ -7,6 +7,7 @@ object Check {
     const val MARCADOR = 3
     const val CHARS = 4
     const val INCOMPLETA = 5
+    const val RASCUNHO = 6
 
     val names = arrayOf(
         "Todos",
@@ -14,7 +15,8 @@ object Check {
         "Não cabe nem reajustando",
         "Marcador faltando",
         "Caracteres que viram ?",
-        "Fala incompleta"
+        "Fala incompleta",
+        "Rascunho automático (revisar)"
     )
 
     class Problem(val idx: Int, val kind: Int, val info: String)
@@ -43,6 +45,7 @@ object Check {
             val bad = LinkedHashSet<Char>()
             for (ch in shownText) if (!enc.canEncode(ch)) bad.add(ch)
             if (bad.isNotEmpty()) out.add(Problem(i, CHARS, "caracteres: ${bad.joinToString(" ")}"))
+            if (i in Store.drafts.indices && Store.drafts[i]) out.add(Problem(i, RASCUNHO, "tradução automática, revise"))
         }
 
         for (u in Wrap.units(orig)) {

@@ -3,27 +3,35 @@ package com.aintradutor.app
 import android.content.Context
 import java.io.File
 
-/** Estado compartilhado entre a tela principal, o modo ao vivo e o serviço. */
+/** Estado compartilhado entre as telas, o modo ao vivo e o serviço. */
 object Store {
     var ain: AinFile? = null
     var originals: Array<String> = emptyArray()
     var trans: Array<String?> = arrayOfNulls(0)
     var limits: IntArray = IntArray(0) // limite individual por fala (0 = usa o limite geral)
+    var drafts: BooleanArray = BooleanArray(0) // true = tradução automática ainda não revisada
     var globalLimit: Int = 50
-    var undo: Array<String?>? = null // cópia das traduções antes do último reajuste
+    var undo: Array<String?>? = null // cópia das traduções antes da última ação em lote
     var showEmpty: Boolean = false // mostrar na lista as falas vazias do .ain
     var stripAccents: Boolean = true // remover acentos e ç ao salvar o .ain
+    var gameDir: String? = null // pasta do jogo (Uri da árvore do Android)
+    var gameName: String = "" // nome do arquivo .ain dentro da pasta do jogo
+    var openedName: String = "" // nome do .ain que foi aberto
 
     private var index: HashMap<String, ArrayList<Int>>? = null
     private var keys: Array<String> = emptyArray()
+    private var unitsCache: List<IntArray>? = null
+    private var unitIdx: IntArray = IntArray(0)
 
     private fun apply(f: AinFile) {
         ain = f
         originals = Array(f.originals.size) { String(f.originals[it], AinFile.CP932) }
         trans = arrayOfNulls(originals.size)
         limits = IntArray(originals.size)
+        drafts = BooleanArray(originals.size)
         undo = null
         index = null
+        unitsCache = null
     }
 
     /** Abre um .ain novo (zera as traduções) e guarda uma cópia no app. */
@@ -56,6 +64,13 @@ object Store {
                     if (id in limits.indices && v > 0) limits[id] = v
                 }
             }
+            val df = File(ctx.filesDir, "drafts.csv")
+            if (df.exists()) {
+                for (line in df.readLines()) {
+                    val id = line.trim().toIntOrNull() ?: continue
+                    if (id in drafts.indices) drafts[id] = true
+                }
+            }
             true
         } catch (e: Throwable) {
             false
@@ -75,6 +90,9 @@ object Store {
             if (limits[i] > 0) lb.append(i).append(',').append(limits[i]).append('\n')
         }
         File(ctx.filesDir, "limits.csv").writeText(lb.toString())
+        val db = StringBuilder()
+        for (i in drafts.indices) if (drafts[i] && trans[i] != null) db.append(i).append('\n')
+        File(ctx.filesDir, "drafts.csv").writeText(db.toString())
     }
 
     fun persistAsync(ctx: Context) {
@@ -87,18 +105,15 @@ object Store {
         }.start()
     }
 
-    /** Limite de caracteres desta fala: o individual, se existir, senão o geral. */
-    fun limitOf(i: Int): Int = if (i in limits.indices && limits[i] > 0) limits[i] else globalLimit
-
-    fun setLimit(i: Int, v: Int) {
-        if (i in limits.indices) limits[i] = if (v > 0) v else 0
-    }
+    // ---------- preferências ----------
 
     fun loadPrefs(ctx: Context) {
         val p = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE)
         globalLimit = p.getInt("limit", 50)
         stripAccents = p.getBoolean("strip", true)
         showEmpty = p.getBoolean("empty", false)
+        gameDir = p.getString("gdir", null)
+        gameName = p.getString("gname", "") ?: ""
     }
 
     fun savePrefs(ctx: Context) {
@@ -106,13 +121,31 @@ object Store {
             .putInt("limit", globalLimit)
             .putBoolean("strip", stripAccents)
             .putBoolean("empty", showEmpty)
+            .putString("gdir", gameDir)
+            .putString("gname", gameName)
             .apply()
     }
 
-    /** Guarda uma tradução, devolvendo aspas/crase/espaço do início e aspas do fim se faltarem. */
+    // ---------- limites e traduções ----------
+
+    /** Limite de caracteres desta fala: o individual, se existir, senão o geral. */
+    fun limitOf(i: Int): Int = if (i in limits.indices && limits[i] > 0) limits[i] else globalLimit
+
+    fun setLimit(i: Int, v: Int) {
+        if (i in limits.indices) limits[i] = if (v > 0) v else 0
+    }
+
+    /** Guarda uma tradução digitada, devolvendo aspas/crase/espaço do início e aspas do fim se faltarem. */
     fun setTrans(i: Int, text: String) {
         if (i !in trans.indices) return
         trans[i] = if (text.isBlank() || text == originals[i]) null else fixMarkers(originals[i], text)
+        drafts[i] = false // quem digitou já revisou
+    }
+
+    fun clear(i: Int) {
+        if (i !in trans.indices) return
+        trans[i] = null
+        drafts[i] = false
     }
 
     fun fixMarkers(o: String, t: String): String {
@@ -122,6 +155,25 @@ object Store {
         }
         if (o.endsWith("\"") && !r.endsWith("\"")) r += "\""
         return r
+    }
+
+    // ---------- trechos (falas contínuas) ----------
+
+    fun units(): List<IntArray> {
+        val c = unitsCache
+        if (c != null) return c
+        val u = Wrap.units(originals)
+        val idx = IntArray(originals.size) { -1 }
+        for ((k, x) in u.withIndex()) for (i in x) idx[i] = k
+        unitIdx = idx
+        unitsCache = u
+        return u
+    }
+
+    fun unitOf(i: Int): IntArray? {
+        val u = units()
+        val k = unitIdx.getOrNull(i) ?: return null
+        return if (k >= 0) u[k] else null
     }
 
     // ---------- achar a fala que está na tela ----------

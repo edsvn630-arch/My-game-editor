@@ -3,15 +3,17 @@ package com.aintradutor.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.InputType
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -22,22 +24,35 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
+import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import android.media.projection.MediaProjectionManager
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val M_OPEN = 1
+        private const val M_SAVE = 2
+        private const val M_SAVE_GAME = 3
+        private const val M_GAME_SETUP = 4
+        private const val M_IMPORT = 5
+        private const val M_EXPORT = 6
+        private const val M_LIVE = 7
+        private const val M_PROBLEMS = 8
+        private const val M_TOOLS = 9
+        private const val M_LIMIT = 10
+        private const val M_ONLY = 11
+        private const val M_STRIP = 12
+        private const val M_EMPTY = 13
+    }
+
     private var shown: List<Int> = emptyList()
+    private var onlyUntranslated = false
 
     private lateinit var adapter: Adapter
     private lateinit var status: TextView
     private lateinit var etSearch: EditText
-    private lateinit var etLimit: EditText
-    private lateinit var cbOnly: CheckBox
-    private lateinit var cbStrip: CheckBox
-    private lateinit var cbEmpty: CheckBox
     private var bar: FastScrollBar? = null
 
     private val openAin = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -51,6 +66,9 @@ class MainActivity : AppCompatActivity() {
     }
     private val saveCsv = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) exportCsv(uri)
+    }
+    private val pickGameDir = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) onGameDirPicked(uri)
     }
     private val requestNotif = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
         askCapture()
@@ -70,7 +88,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
-    private fun limit() = etLimit.text.toString().trim().toIntOrNull() ?: 0
+
+    private fun need(): Boolean {
+        if (Store.ain == null) {
+            toast("Abra um .ain primeiro (menu ⋮ → Abrir .ain)")
+            return false
+        }
+        return true
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,81 +105,16 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
 
-        fun btn(label: String, action: () -> Unit): Button {
-            val b = Button(this@MainActivity)
-            b.text = label
-            b.textSize = 12f
-            b.isAllCaps = false
-            b.setOnClickListener { action() }
-            b.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            return b
-        }
-
-        val row1 = LinearLayout(this)
-        row1.addView(btn("Abrir .ain") { openAin.launch(arrayOf("*/*")) })
-        row1.addView(btn("Salvar .ain") {
-            if (Store.ain == null) toast("Abra um .ain primeiro") else saveAin.launch("Rance01_PT.ain")
-        })
-        root.addView(row1)
-
-        val row2 = LinearLayout(this)
-        row2.addView(btn("Importar CSV") {
-            if (Store.ain == null) toast("Abra um .ain primeiro") else openCsv.launch(arrayOf("*/*"))
-        })
-        row2.addView(btn("Exportar CSV") {
-            if (Store.ain == null) toast("Abra um .ain primeiro") else saveCsv.launch("falas.csv")
-        })
-        root.addView(row2)
-
-        val row2b = LinearLayout(this)
-        row2b.addView(btn("Modo ao vivo (sobre o jogo)") { startLive() })
-        row2b.addView(btn("Problemas e reajuste") {
-            if (Store.ain == null) toast("Abra um .ain primeiro") else startActivity(Intent(this, ProblemsActivity::class.java))
-        })
-        root.addView(row2b)
-
-        val row2c = LinearLayout(this)
-        row2c.addView(btn("Repetidas e substituir") {
-            if (Store.ain == null) toast("Abra um .ain primeiro") else startActivity(Intent(this, ToolsActivity::class.java))
-        })
-        root.addView(row2c)
-
-        val row3 = LinearLayout(this)
-        row3.gravity = android.view.Gravity.CENTER_VERTICAL
-        row3.setPadding(dp(8), 0, dp(8), 0)
         etSearch = EditText(this)
-        etSearch.hint = "Buscar"
+        etSearch.hint = "Buscar (no original ou na tradução)"
         etSearch.inputType = InputType.TYPE_CLASS_TEXT
-        etSearch.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        row3.addView(etSearch)
-        etLimit = EditText(this)
-        etLimit.hint = "Limite"
-        etLimit.inputType = InputType.TYPE_CLASS_NUMBER
-        etLimit.setText(Store.globalLimit.toString())
-        etLimit.layoutParams = LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT)
-        row3.addView(etLimit)
-        root.addView(row3)
-
-        cbOnly = CheckBox(this)
-        cbOnly.text = "Só não traduzidas"
-        cbOnly.setPadding(dp(8), 0, dp(8), 0)
-        root.addView(cbOnly)
-
-        cbStrip = CheckBox(this)
-        cbStrip.text = "Remover acentos e ç ao salvar o .ain"
-        cbStrip.setPadding(dp(8), 0, dp(8), 0)
-        cbStrip.isChecked = Store.stripAccents
-        root.addView(cbStrip)
-
-        cbEmpty = CheckBox(this)
-        cbEmpty.text = "Mostrar falas vazias"
-        cbEmpty.setPadding(dp(8), 0, dp(8), 0)
-        cbEmpty.isChecked = Store.showEmpty
-        root.addView(cbEmpty)
+        etSearch.setPadding(dp(16), dp(10), dp(16), dp(10))
+        etSearch.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        root.addView(etSearch)
 
         status = TextView(this)
-        status.setPadding(dp(12), dp(4), dp(12), dp(4))
-        status.text = "Abra um arquivo .ain"
+        status.setPadding(dp(16), dp(4), dp(16), dp(4))
+        status.text = "Abra um arquivo .ain (menu ⋮ → Abrir .ain)"
         root.addView(status)
 
         val rv = RecyclerView(this)
@@ -172,22 +132,6 @@ class MainActivity : AppCompatActivity() {
         root.addView(frame)
 
         etSearch.doAfterTextChanged { refresh() }
-        etLimit.doAfterTextChanged {
-            Store.globalLimit = limit()
-            Store.savePrefs(applicationContext)
-            adapter.notifyDataSetChanged()
-        }
-        cbOnly.setOnCheckedChangeListener { _, _ -> refresh() }
-        cbStrip.setOnCheckedChangeListener { _, checked ->
-            Store.stripAccents = checked
-            Store.savePrefs(applicationContext)
-        }
-        cbEmpty.setOnCheckedChangeListener { _, checked ->
-            Store.showEmpty = checked
-            Store.savePrefs(applicationContext)
-            refresh()
-        }
-
         setContentView(root)
 
         // recupera o último projeto, se o app foi fechado
@@ -200,18 +144,93 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        refresh() // traduções feitas no modo ao vivo aparecem aqui
+        refresh() // traduções feitas em outras telas aparecem aqui
+    }
+
+    // ---------- menu (três pontinhos) ----------
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(Menu.NONE, M_OPEN, Menu.NONE, "Abrir .ain")
+        menu.add(Menu.NONE, M_SAVE, Menu.NONE, "Salvar .ain…")
+        menu.add(Menu.NONE, M_SAVE_GAME, Menu.NONE, "Salvar na pasta do jogo")
+        menu.add(Menu.NONE, M_GAME_SETUP, Menu.NONE, "Trocar pasta/nome do jogo…")
+        menu.add(Menu.NONE, M_IMPORT, Menu.NONE, "Importar CSV")
+        menu.add(Menu.NONE, M_EXPORT, Menu.NONE, "Exportar CSV")
+        menu.add(Menu.NONE, M_LIVE, Menu.NONE, "Modo ao vivo (sobre o jogo)")
+        menu.add(Menu.NONE, M_PROBLEMS, Menu.NONE, "Problemas e reajuste")
+        menu.add(Menu.NONE, M_TOOLS, Menu.NONE, "Repetidas, substituir e tradução automática")
+        menu.add(Menu.NONE, M_LIMIT, Menu.NONE, "Limite de caracteres")
+        menu.add(Menu.NONE, M_ONLY, Menu.NONE, "Só não traduzidas").isCheckable = true
+        menu.add(Menu.NONE, M_STRIP, Menu.NONE, "Remover acentos e ç ao salvar o .ain").isCheckable = true
+        menu.add(Menu.NONE, M_EMPTY, Menu.NONE, "Mostrar falas vazias").isCheckable = true
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(M_LIMIT)?.title = "Limite de caracteres: ${Store.globalLimit}"
+        menu.findItem(M_ONLY)?.isChecked = onlyUntranslated
+        menu.findItem(M_STRIP)?.isChecked = Store.stripAccents
+        menu.findItem(M_EMPTY)?.isChecked = Store.showEmpty
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            M_OPEN -> openAin.launch(arrayOf("*/*"))
+            M_SAVE -> if (need()) saveAin.launch(if (Store.gameName.isNotBlank()) Store.gameName else "Rance01_PT.ain")
+            M_SAVE_GAME -> saveToGame()
+            M_GAME_SETUP -> if (need()) setupGame()
+            M_IMPORT -> if (need()) openCsv.launch(arrayOf("*/*"))
+            M_EXPORT -> if (need()) saveCsv.launch("falas.csv")
+            M_LIVE -> startLive()
+            M_PROBLEMS -> if (need()) startActivity(Intent(this, ProblemsActivity::class.java))
+            M_TOOLS -> if (need()) startActivity(Intent(this, ToolsActivity::class.java))
+            M_LIMIT -> askLimit()
+            M_ONLY -> {
+                onlyUntranslated = !onlyUntranslated
+                refresh()
+            }
+            M_STRIP -> {
+                Store.stripAccents = !Store.stripAccents
+                Store.savePrefs(applicationContext)
+            }
+            M_EMPTY -> {
+                Store.showEmpty = !Store.showEmpty
+                Store.savePrefs(applicationContext)
+                refresh()
+            }
+            else -> return super.onOptionsItemSelected(item)
+        }
+        return true
+    }
+
+    private fun askLimit() {
+        val et = EditText(this)
+        et.inputType = InputType.TYPE_CLASS_NUMBER
+        et.setText(Store.globalLimit.toString())
+        et.setSelection(et.text.length)
+        val box = LinearLayout(this)
+        box.setPadding(dp(20), dp(8), dp(20), 0)
+        box.addView(et, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        AlertDialog.Builder(this)
+            .setTitle("Limite de caracteres por linha")
+            .setMessage("Vale para as falas que não têm limite próprio. Use 0 para desligar.")
+            .setView(box)
+            .setPositiveButton("OK") { _, _ ->
+                Store.globalLimit = et.text.toString().trim().toIntOrNull() ?: 0
+                Store.savePrefs(applicationContext)
+                adapter.notifyDataSetChanged()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     // ---------- modo ao vivo ----------
 
     private fun startLive() {
-        if (Store.ain == null) {
-            toast("Abra um .ain primeiro")
-            return
-        }
+        if (!need()) return
         if (!Settings.canDrawOverlays(this)) {
-            toast("Ative \"Aparecer sobre outros apps\" para o Ain Tradutor e toque de novo em Modo ao vivo")
+            toast("Ative \"Aparecer sobre outros apps\" para o Ain Tradutor e escolha Modo ao vivo de novo")
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
@@ -237,6 +256,12 @@ class MainActivity : AppCompatActivity() {
             try {
                 val data = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
                 Store.load(applicationContext, data)
+                try {
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) Store.openedName = c.getString(0) ?: ""
+                    }
+                } catch (e: Throwable) {
+                }
                 runOnUiThread { refresh() }
             } catch (e: Throwable) {
                 runOnUiThread {
@@ -264,6 +289,105 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     refresh()
                     toast("Erro ao salvar: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
+    // ---------- salvar direto na pasta do jogo ----------
+
+    private fun saveToGame() {
+        if (!need()) return
+        val dir = Store.gameDir
+        if (dir == null || Store.gameName.isBlank()) {
+            setupGame()
+            return
+        }
+        doSaveToGame(Uri.parse(dir), Store.gameName)
+    }
+
+    private fun setupGame() {
+        toast("Escolha a pasta onde está o jogo (a que contém o arquivo .ain)")
+        pickGameDir.launch(null)
+    }
+
+    private fun onGameDirPicked(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (e: Throwable) {
+        }
+        Store.gameDir = uri.toString()
+        Store.savePrefs(applicationContext)
+        askGameName()
+    }
+
+    private fun askGameName() {
+        val et = EditText(this)
+        et.setText(
+            if (Store.gameName.isNotBlank()) Store.gameName
+            else if (Store.openedName.isNotBlank()) Store.openedName
+            else "Rance01.ain"
+        )
+        et.setSelection(et.text.length)
+        val box = LinearLayout(this)
+        box.setPadding(dp(20), dp(8), dp(20), 0)
+        box.addView(et, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        AlertDialog.Builder(this)
+            .setTitle("Nome do arquivo na pasta do jogo")
+            .setMessage("Use o nome que o jogo lê (ex.: Rance01.ain). Se o arquivo já existir, o app guarda uma cópia (.bak) na primeira vez antes de substituir.")
+            .setView(box)
+            .setPositiveButton("Salvar") { _, _ ->
+                val n = et.text.toString().trim()
+                val d = Store.gameDir
+                if (n.isNotEmpty() && d != null) {
+                    Store.gameName = n
+                    Store.savePrefs(applicationContext)
+                    doSaveToGame(Uri.parse(d), n)
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun doSaveToGame(treeUri: Uri, name: String) {
+        val f = Store.ain ?: return
+        status.text = "Salvando na pasta do jogo..."
+        val snapshot = Store.trans.copyOf()
+        val strip = Store.stripAccents
+        Thread {
+            try {
+                val dir = DocumentFile.fromTreeUri(this, treeUri) ?: throw IllegalStateException("pasta inválida")
+                val bytes = f.build(snapshot, strip)
+                val existing = dir.findFile(name)
+                val target: DocumentFile
+                var backedUp = false
+                if (existing != null) {
+                    if (dir.findFile("$name.bak") == null) {
+                        val bak = dir.createFile("application/octet-stream", "$name.bak")
+                        if (bak != null) {
+                            contentResolver.openInputStream(existing.uri)!!.use { ins ->
+                                contentResolver.openOutputStream(bak.uri, "wt")!!.use { out -> ins.copyTo(out) }
+                            }
+                            backedUp = true
+                        }
+                    }
+                    target = existing
+                } else {
+                    target = dir.createFile("application/octet-stream", name)
+                        ?: throw IllegalStateException("não consegui criar o arquivo")
+                }
+                contentResolver.openOutputStream(target.uri, "wt")!!.use { it.write(bytes) }
+                runOnUiThread {
+                    refresh()
+                    toast("Salvo em $name (${bytes.size / 1024} KB)" + if (backedUp) ". Cópia do original: $name.bak" else "")
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    refresh()
+                    toast("Erro ao salvar na pasta do jogo: ${e.message}. Use \"Trocar pasta/nome do jogo\" e escolha a pasta de novo.")
                 }
             }
         }.start()
@@ -324,8 +448,8 @@ class MainActivity : AppCompatActivity() {
         val originals = Store.originals
         val trans = Store.trans
         val q = etSearch.text.toString().trim()
-        val only = cbOnly.isChecked
-        val showEmpty = cbEmpty.isChecked
+        val only = onlyUntranslated
+        val showEmpty = Store.showEmpty
         val list = ArrayList<Int>()
         for (i in originals.indices) {
             if (originals[i].isEmpty() && !showEmpty) continue
@@ -343,7 +467,7 @@ class MainActivity : AppCompatActivity() {
         bar?.invalidate()
         val done = trans.count { it != null }
         status.text = if (Store.ain == null) {
-            "Abra um arquivo .ain"
+            "Abra um arquivo .ain (menu ⋮ → Abrir .ain)"
         } else {
             "${shown.size} exibidas • $done traduzidas de ${originals.size}"
         }
@@ -402,7 +526,7 @@ class MainActivity : AppCompatActivity() {
                 refresh()
             }
             .setNeutralButton("Limpar") { _, _ ->
-                Store.trans[i] = null
+                Store.clear(i)
                 Store.persistAsync(applicationContext)
                 refresh()
             }
@@ -442,9 +566,12 @@ class MainActivity : AppCompatActivity() {
                 holder.b.text = "(toque para traduzir)"
                 holder.b.setTextColor(0xFF999999.toInt())
             } else {
-                holder.b.text = if (lim > 0) "$t  [${t.length}/$lim]" else t
+                val draft = if (Store.drafts[i]) "  (rascunho)" else ""
+                holder.b.text = (if (lim > 0) "$t  [${t.length}/$lim]" else t) + draft
                 val over = lim > 0 && t.length > lim
-                holder.b.setTextColor(if (over) 0xFFD32F2F.toInt() else 0xFF2E7D32.toInt())
+                holder.b.setTextColor(
+                    if (over) 0xFFD32F2F.toInt() else if (Store.drafts[i]) 0xFFEF6C00.toInt() else 0xFF2E7D32.toInt()
+                )
             }
             holder.itemView.setOnClickListener { edit(i) }
         }

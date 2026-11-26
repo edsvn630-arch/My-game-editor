@@ -25,6 +25,7 @@ class LiveActivity : AppCompatActivity() {
     private lateinit var info: TextView
     private lateinit var etFind: EditText
     private lateinit var scroll: ScrollView
+    private val shownIdx = ArrayList<Int>()
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -68,6 +69,10 @@ class LiveActivity : AppCompatActivity() {
         })
         root.addView(row2)
 
+        val row3 = LinearLayout(this)
+        row3.addView(btn("Sugerir tradução (auto) para as falas desta tela") { suggest() })
+        root.addView(row3)
+
         info = TextView(this)
         info.setPadding(dp(12), dp(4), dp(12), dp(4))
         root.addView(info)
@@ -108,6 +113,7 @@ class LiveActivity : AppCompatActivity() {
 
     private fun render() {
         list.removeAllViews()
+        shownIdx.clear()
         val orig = Store.originals
         if (orig.isEmpty()) {
             info.text = "Abra um .ain no app primeiro"
@@ -119,6 +125,7 @@ class LiveActivity : AppCompatActivity() {
         while (i < orig.size && shown < pageSize) {
             if (orig[i].isNotEmpty()) {
                 addRow(i)
+                shownIdx.add(i)
                 shown++
                 last = i
             }
@@ -165,7 +172,8 @@ class LiveActivity : AppCompatActivity() {
         fun upd() {
             val lim = Store.limitOf(i)
             val n = et.text.length
-            counter.text = if (lim > 0) "$n / $lim" else "$n"
+            val base = if (lim > 0) "$n / $lim" else "$n"
+            counter.text = base + (if (Store.drafts[i]) "  • rascunho automático" else "")
             counter.setTextColor(if (lim > 0 && n > lim) 0xFFD32F2F.toInt() else 0xFF777777.toInt())
         }
         et.doAfterTextChanged {
@@ -181,6 +189,35 @@ class LiveActivity : AppCompatActivity() {
         list.addView(o)
         list.addView(et)
         list.addView(row)
+    }
+
+    private fun suggest() {
+        if (Store.originals.isEmpty()) return
+        val idxs = ArrayList(shownIdx)
+        Toast.makeText(this, "Traduzindo... (na primeira vez baixa o modelo, precisa de internet)", Toast.LENGTH_LONG).show()
+        Thread {
+            try {
+                Auto.ensureModel()
+                val seen = HashSet<Int>()
+                var n = 0
+                for (i in idxs) {
+                    val u = Store.unitOf(i) ?: continue
+                    if (!seen.add(u[0])) continue
+                    if (u.all { Store.trans[it] == null }) {
+                        if (Auto.translateUnit(u)) n++
+                    }
+                }
+                Store.persist(applicationContext)
+                runOnUiThread {
+                    Toast.makeText(this, "$n trechos sugeridos (rascunho). Revise e corrija.", Toast.LENGTH_LONG).show()
+                    render()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    Toast.makeText(this, "Erro: ${e.message}. Confira a internet (a primeira vez baixa o modelo).", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun goNext() {

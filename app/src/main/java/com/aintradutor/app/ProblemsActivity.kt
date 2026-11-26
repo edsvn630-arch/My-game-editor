@@ -52,6 +52,10 @@ class ProblemsActivity : AppCompatActivity() {
         row.addView(btn("Desfazer reajuste") { undo() })
         root.addView(row)
 
+        val row2 = LinearLayout(this)
+        row2.addView(btn("Aprovar todos os rascunhos") { approveAll() })
+        root.addView(row2)
+
         val spinner = Spinner(this)
         spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, Check.names)
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -144,6 +148,19 @@ class ProblemsActivity : AppCompatActivity() {
         rescan()
     }
 
+    private fun approveAll() {
+        var n = 0
+        for (i in Store.drafts.indices) {
+            if (Store.drafts[i]) {
+                Store.drafts[i] = false
+                n++
+            }
+        }
+        Store.persistAsync(applicationContext)
+        toast(if (n == 0) "Nenhum rascunho para aprovar" else "$n falas marcadas como revisadas")
+        rescan()
+    }
+
     private fun open(idx: Int) {
         val i = Intent(this, LiveActivity::class.java)
         i.putExtra("start", idx)
@@ -180,6 +197,15 @@ class ProblemsActivity : AppCompatActivity() {
             holder.a.text = "#${p.idx} · ${Check.names[p.kind]} (${p.info})"
             holder.b.text = Store.trans[p.idx] ?: Store.originals[p.idx]
             holder.itemView.setOnClickListener { open(p.idx) }
+            holder.itemView.setOnLongClickListener {
+                if (p.idx in Store.drafts.indices && Store.drafts[p.idx]) {
+                    Store.drafts[p.idx] = false
+                    Store.persistAsync(applicationContext)
+                    toast("Marcada como revisada")
+                    rescan()
+                }
+                true
+            }
         }
     }
 }

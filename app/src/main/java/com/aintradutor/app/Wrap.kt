@@ -45,33 +45,47 @@ object Wrap {
         return out
     }
 
+    private fun prefsOf(unit: IntArray, orig: Array<String>): Array<String> =
+        Array(unit.size) { j ->
+            val c = orig[unit[j]][0]
+            if (j > 0 && (c == ' ' || c == '`')) c.toString() else ""
+        }
+
     /**
      * Redistribui a tradução do trecho nas suas entradas.
      * Devolve as novas linhas, ou null com o motivo (incompleta / pouco texto / não cabe).
      */
     fun rewrap(unit: IntArray, orig: Array<String>, trans: Array<String?>, capOf: (Int) -> Int): Result {
-        val k = unit.size
-        val prefs = Array(k) { j ->
-            val c = orig[unit[j]][0]
-            if (j > 0 && (c == ' ' || c == '`')) c.toString() else ""
-        }
+        val prefs = prefsOf(unit, orig)
         val sb = StringBuilder()
-        for (j in 0 until k) {
+        for (j in unit.indices) {
             val t = trans[unit[j]] ?: return Result(null, "incompleta")
             val body = if (prefs[j].isNotEmpty() && t.startsWith(prefs[j])) t.substring(1) else t
             if (sb.isNotEmpty()) sb.append(' ')
             sb.append(body)
         }
-        val words = sb.toString().trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return distribute(unit, orig, sb.toString(), capOf, false)
+    }
+
+    /**
+     * Divide um texto nas linhas do trecho, minimizando a linha mais cheia (tamanho / limite).
+     * Com force = true devolve o melhor resultado mesmo que alguma linha passe do limite.
+     */
+    fun distribute(unit: IntArray, orig: Array<String>, text: String, capOf: (Int) -> Int, force: Boolean): Result {
+        val k = unit.size
+        val prefs = prefsOf(unit, orig)
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         val n = words.size
         if (n < k) return Result(null, "pouco texto")
 
-        val caps = IntArray(k) { j -> maxOf(1, capOf(unit[j]) - prefs[j].length) }
+        val caps = IntArray(k) { j ->
+            val c = capOf(unit[j])
+            if (c <= 0) 100000 else maxOf(1, c - prefs[j].length)
+        }
         val pre = IntArray(n + 1)
         for (i in 0 until n) pre[i + 1] = pre[i] + words[i].length
         fun len(a: Int, e: Int) = pre[e] - pre[a] + (e - a - 1)
 
-        // programação dinâmica: divide em k linhas minimizando a linha mais cheia (len/cap)
         val inf = Double.MAX_VALUE
         val dp = Array(k) { DoubleArray(n + 1) { inf } }
         val from = Array(k) { IntArray(n + 1) { -1 } }
@@ -91,7 +105,7 @@ object Wrap {
         }
         val best = dp[k - 1][n]
         if (best == inf) return Result(null, "pouco texto")
-        if (best > 1.0) {
+        if (best > 1.0 && !force) {
             val total = len(0, n) - (k - 1)
             return Result(null, "não cabe (texto $total / cabem ${caps.sum()})")
         }
