@@ -11,6 +11,7 @@ object Store {
     var limits: IntArray = IntArray(0) // limite individual por fala (0 = usa o limite geral)
     var globalLimit: Int = 50
     var undo: Array<String?>? = null // cópia das traduções antes do último reajuste
+    var showEmpty: Boolean = false // mostrar na lista as falas vazias do .ain
     var stripAccents: Boolean = true // remover acentos e ç ao salvar o .ain
 
     private var index: HashMap<String, ArrayList<Int>>? = null
@@ -97,12 +98,14 @@ object Store {
         val p = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE)
         globalLimit = p.getInt("limit", 50)
         stripAccents = p.getBoolean("strip", true)
+        showEmpty = p.getBoolean("empty", false)
     }
 
     fun savePrefs(ctx: Context) {
         ctx.getSharedPreferences("ain", Context.MODE_PRIVATE).edit()
             .putInt("limit", globalLimit)
             .putBoolean("strip", stripAccents)
+            .putBoolean("empty", showEmpty)
             .apply()
     }
 

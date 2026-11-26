@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etLimit: EditText
     private lateinit var cbOnly: CheckBox
     private lateinit var cbStrip: CheckBox
+    private lateinit var cbEmpty: CheckBox
     private var bar: FastScrollBar? = null
 
     private val openAin = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -139,6 +140,12 @@ class MainActivity : AppCompatActivity() {
         cbStrip.isChecked = Store.stripAccents
         root.addView(cbStrip)
 
+        cbEmpty = CheckBox(this)
+        cbEmpty.text = "Mostrar falas vazias"
+        cbEmpty.setPadding(dp(8), 0, dp(8), 0)
+        cbEmpty.isChecked = Store.showEmpty
+        root.addView(cbEmpty)
+
         status = TextView(this)
         status.setPadding(dp(12), dp(4), dp(12), dp(4))
         status.text = "Abra um arquivo .ain"
@@ -168,6 +175,11 @@ class MainActivity : AppCompatActivity() {
         cbStrip.setOnCheckedChangeListener { _, checked ->
             Store.stripAccents = checked
             Store.savePrefs(applicationContext)
+        }
+        cbEmpty.setOnCheckedChangeListener { _, checked ->
+            Store.showEmpty = checked
+            Store.savePrefs(applicationContext)
+            refresh()
         }
 
         setContentView(root)
@@ -307,9 +319,10 @@ class MainActivity : AppCompatActivity() {
         val trans = Store.trans
         val q = etSearch.text.toString().trim()
         val only = cbOnly.isChecked
+        val showEmpty = cbEmpty.isChecked
         val list = ArrayList<Int>()
         for (i in originals.indices) {
-            if (originals[i].isEmpty()) continue
+            if (originals[i].isEmpty() && !showEmpty) continue
             val t = trans[i]
             if (only && t != null) continue
             if (q.isNotEmpty()) {
