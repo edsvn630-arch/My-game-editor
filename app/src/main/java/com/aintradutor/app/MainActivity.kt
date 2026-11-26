@@ -113,6 +113,12 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(row2b)
 
+        val row2c = LinearLayout(this)
+        row2c.addView(btn("Repetidas e substituir") {
+            if (Store.ain == null) toast("Abra um .ain primeiro") else startActivity(Intent(this, ToolsActivity::class.java))
+        })
+        root.addView(row2c)
+
         val row3 = LinearLayout(this)
         row3.gravity = android.view.Gravity.CENTER_VERTICAL
         row3.setPadding(dp(8), 0, dp(8), 0)

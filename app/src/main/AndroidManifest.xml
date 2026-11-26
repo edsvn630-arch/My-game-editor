@@ -33,6 +33,11 @@
             android:exported="false"
             android:label="Problemas e reajuste" />
 
+        <activity
+            android:name=".ToolsActivity"
+            android:exported="false"
+            android:label="Repetidas e substituir" />
+
         <service
             android:name=".LiveService"
             android:exported="false"
