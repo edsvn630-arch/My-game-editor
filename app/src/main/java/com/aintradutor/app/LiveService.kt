@@ -26,9 +26,6 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class LiveService : Service() {
 
@@ -39,7 +36,6 @@ class LiveService : Service() {
     private var reader: ImageReader? = null
     private var vdisplay: VirtualDisplay? = null
     private var busy = false
-    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -192,6 +188,10 @@ class LiveService : Service() {
 
     private fun capture() {
         if (busy) return
+        if (!Paddle.isReady(applicationContext)) {
+            toast("Baixe os modelos do OCR primeiro (menu ⋮ do app → OCR: modelos do PaddleOCR)")
+            return
+        }
         val img = reader?.acquireLatestImage()
         if (img == null) {
             toast("Ainda sem imagem da tela, toque de novo")
@@ -214,28 +214,22 @@ class LiveService : Service() {
             toast("Erro na captura da tela")
             return
         }
-        val image = InputImage.fromBitmap(bmp, 0)
-        recognizer.process(image)
-            .addOnSuccessListener { t ->
-                val lines = ArrayList<String>()
-                for (blk in t.textBlocks) for (ln in blk.lines) lines.add(ln.text)
-                Thread {
-                    var found = IntArray(0)
-                    try {
-                        Store.restore(applicationContext)
-                        found = Store.match(lines)
-                    } catch (e: Throwable) {
-                    }
-                    handler.post {
-                        busy = false
-                        openLive(found)
-                    }
-                }.start()
+        val shot: Bitmap = bmp
+        Thread {
+            var found = IntArray(0)
+            var err: String? = null
+            try {
+                Store.restore(applicationContext)
+                val lines = Paddle.recognize(applicationContext, shot)
+                found = Store.match(lines)
+            } catch (e: Throwable) {
+                err = e.message ?: e.javaClass.simpleName
             }
-            .addOnFailureListener {
+            handler.post {
                 busy = false
-                toast("O OCR falhou")
+                if (err != null) toast("O OCR falhou: $err") else openLive(found)
             }
+        }.start()
     }
 
     private fun openLive(found: IntArray) {
@@ -255,6 +249,7 @@ class LiveService : Service() {
         vdisplay?.release()
         reader?.close()
         projection?.stop()
+        Paddle.close()
         super.onDestroy()
     }
 }

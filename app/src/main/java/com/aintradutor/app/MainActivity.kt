@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
         private const val M_ONLY = 11
         private const val M_STRIP = 12
         private const val M_EMPTY = 13
+        private const val M_OCR = 14
     }
 
     private var shown: List<Int> = emptyList()
@@ -157,6 +158,7 @@ class MainActivity : AppCompatActivity() {
         menu.add(Menu.NONE, M_IMPORT, Menu.NONE, "Importar CSV")
         menu.add(Menu.NONE, M_EXPORT, Menu.NONE, "Exportar CSV")
         menu.add(Menu.NONE, M_LIVE, Menu.NONE, "Modo ao vivo (sobre o jogo)")
+        menu.add(Menu.NONE, M_OCR, Menu.NONE, "OCR: modelos do PaddleOCR")
         menu.add(Menu.NONE, M_PROBLEMS, Menu.NONE, "Problemas e reajuste")
         menu.add(Menu.NONE, M_TOOLS, Menu.NONE, "Repetidas, substituir e tradução automática")
         menu.add(Menu.NONE, M_LIMIT, Menu.NONE, "Limite de caracteres")
@@ -183,6 +185,7 @@ class MainActivity : AppCompatActivity() {
             M_IMPORT -> if (need()) openCsv.launch(arrayOf("*/*"))
             M_EXPORT -> if (need()) saveCsv.launch("falas.csv")
             M_LIVE -> startLive()
+            M_OCR -> ocrModels()
             M_PROBLEMS -> if (need()) startActivity(Intent(this, ProblemsActivity::class.java))
             M_TOOLS -> if (need()) startActivity(Intent(this, ToolsActivity::class.java))
             M_LIMIT -> askLimit()
@@ -227,8 +230,59 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- modo ao vivo ----------
 
+    private fun ocrModels() {
+        if (Paddle.isReady(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("OCR (PaddleOCR)")
+                .setMessage("Modelos instalados (${Paddle.sizeMb(this)} MB). O OCR funciona sem internet.")
+                .setPositiveButton("Fechar", null)
+                .setNegativeButton("Apagar modelos") { _, _ ->
+                    Paddle.delete(this)
+                    toast("Modelos apagados")
+                }
+                .show()
+        } else {
+            downloadOcr(null)
+        }
+    }
+
+    private fun downloadOcr(then: (() -> Unit)?) {
+        val tv = TextView(this)
+        tv.text = "Preparando..."
+        tv.setPadding(dp(24), dp(16), dp(24), dp(8))
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Baixando modelos do OCR")
+            .setView(tv)
+            .setCancelable(false)
+            .show()
+        Thread {
+            try {
+                Paddle.download(applicationContext) { msg -> runOnUiThread { tv.text = msg } }
+                runOnUiThread {
+                    dlg.dismiss()
+                    toast("Modelos instalados. O OCR agora funciona sem internet.")
+                    then?.invoke()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    dlg.dismiss()
+                    toast("Erro ao baixar os modelos: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
     private fun startLive() {
         if (!need()) return
+        if (!Paddle.isReady(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("Modelos do OCR")
+                .setMessage("O modo ao vivo usa o PaddleOCR, que baixa os modelos uma vez (cerca de 12 MB). Depois funciona sem internet. Baixar agora?")
+                .setPositiveButton("Baixar") { _, _ -> downloadOcr { startLive() } }
+                .setNegativeButton("Agora não", null)
+                .show()
+            return
+        }
         if (!Settings.canDrawOverlays(this)) {
             toast("Ative \"Aparecer sobre outros apps\" para o Ain Tradutor e escolha Modo ao vivo de novo")
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
