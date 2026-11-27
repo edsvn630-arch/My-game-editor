@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.InputType
+import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -18,6 +19,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,6 +60,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: Adapter
     private lateinit var status: TextView
     private lateinit var etSearch: EditText
+    private lateinit var progress: ProgressBar
+    private lateinit var empty: View
+    private lateinit var fab: TextView
+    private lateinit var rv: RecyclerView
     private var bar: FastScrollBar? = null
 
     private val openAin = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -110,30 +116,49 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
 
-        etSearch = EditText(this)
-        etSearch.hint = "Buscar (no original ou na tradução)"
-        etSearch.inputType = InputType.TYPE_CLASS_TEXT
-        etSearch.setPadding(dp(16), dp(10), dp(16), dp(10))
-        etSearch.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(etSearch)
+        // busca
+        etSearch = Ui.input(this, "Buscar no original ou na tradução")
+        root.addView(etSearch, Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 12, 10, 12, 6))
 
+        // cabeçalho com o progresso geral
+        val head = Ui.card(this)
         status = TextView(this)
-        status.setPadding(dp(16), dp(4), dp(16), dp(4))
-        status.text = "Abra um arquivo .ain (menu ⋮ → Abrir .ain)"
-        root.addView(status)
+        status.textSize = 13f
+        status.setTextColor(Ui.color(this, R.color.text2))
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        progress.max = 1000
+        progress.progressDrawable = ContextCompat.getDrawable(this, R.drawable.progress_bar)
+        head.addView(status)
+        head.addView(progress, Ui.lp(this, Ui.MATCH, Ui.dp(this, 6), 0, 8, 0, 0))
+        root.addView(head, Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 4, 12, 6))
 
-        val rv = RecyclerView(this)
+        // lista + barra de rolagem rápida + estado vazio + botão flutuante
+        rv = RecyclerView(this)
         rv.layoutManager = LinearLayoutManager(this)
         rv.adapter = adapter
-        rv.addItemDecoration(DividerItemDecoration(this, DividerItemDecoration.VERTICAL))
+        rv.clipToPadding = false
+        rv.setPadding(0, dp(4), 0, dp(88))
         val frame = FrameLayout(this)
         frame.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        rv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        frame.addView(rv)
+        frame.addView(rv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val fastBar = FastScrollBar(this, rv) { pos -> if (pos in shown.indices) "#${shown[pos]}" else "" }
-        fastBar.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        frame.addView(fastBar)
+        frame.addView(fastBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bar = fastBar
+        empty = buildEmpty()
+        frame.addView(empty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        fab = TextView(this)
+        fab.text = "▶  Ao vivo"
+        fab.textSize = 15f
+        fab.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        fab.setTextColor(Ui.color(this, R.color.on_accent))
+        fab.background = ContextCompat.getDrawable(this, R.drawable.bg_fab)
+        fab.setPadding(dp(20), dp(14), dp(20), dp(14))
+        fab.elevation = dp(8).toFloat()
+        fab.setOnClickListener { startLive() }
+        val fabLp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
+        fabLp.setMargins(0, 0, dp(56), dp(20))
+        frame.addView(fab, fabLp)
         root.addView(frame)
 
         etSearch.doAfterTextChanged { refresh() }
@@ -145,6 +170,22 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { refresh() }
             }
         }.start()
+    }
+
+    private fun buildEmpty(): View {
+        val wrap = LinearLayout(this)
+        wrap.orientation = LinearLayout.VERTICAL
+        wrap.gravity = Gravity.CENTER
+        wrap.setPadding(dp(24), 0, dp(24), dp(48))
+        val card = Ui.card(this)
+        card.gravity = Gravity.CENTER_HORIZONTAL
+        card.addView(Ui.heading(this, "Nenhum jogo aberto"))
+        val s = Ui.secondary(this, "Abra o arquivo .ain do jogo para começar a traduzir. As traduções ficam salvas separadas por jogo.")
+        s.gravity = Gravity.CENTER
+        card.addView(s, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 6, 0, 14))
+        card.addView(Ui.button(this, "Abrir .ain", true) { openAin.launch(arrayOf("*/*")) })
+        wrap.addView(card, Ui.lp(this, Ui.MATCH, Ui.WRAP))
+        return wrap
     }
 
     override fun onResume() {
@@ -591,11 +632,14 @@ class MainActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
         bar?.invalidate()
         val done = trans.count { it != null }
-        status.text = if (Store.ain == null) {
-            "Abra um arquivo .ain (menu ⋮ → Abrir .ain)"
-        } else {
-            "[${Store.projectId}] ${shown.size} exibidas • $done traduzidas de ${originals.size}"
-        }
+        val has = Store.ain != null
+        val total = originals.count { it.isNotEmpty() }
+        empty.visibility = if (has) View.GONE else View.VISIBLE
+        rv.visibility = if (has) View.VISIBLE else View.GONE
+        fab.visibility = if (has) View.VISIBLE else View.GONE
+        supportActionBar?.subtitle = if (has) Store.projectId else null
+        status.text = if (has) "$done de $total traduzidas • ${shown.size} na lista" else "Nenhum jogo aberto"
+        progress.progress = if (total == 0) 0 else (done * 1000L / total).toInt()
     }
 
     private fun edit(i: Int) {
@@ -665,45 +709,95 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private class VH(v: View, val a: TextView, val b: TextView) : RecyclerView.ViewHolder(v)
+    private class VH(
+        v: View,
+        val strip: View,
+        val a: TextView,
+        val b: TextView,
+        val draft: TextView,
+        val flag: TextView,
+        val count: TextView
+    ) : RecyclerView.ViewHolder(v)
 
     private inner class Adapter : RecyclerView.Adapter<VH>() {
         override fun getItemCount() = shown.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val box = LinearLayout(parent.context)
-            box.orientation = LinearLayout.VERTICAL
-            box.setPadding(dp(12), dp(8), dp(12), dp(8))
-            box.layoutParams = RecyclerView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            val a = TextView(parent.context)
+            val ctx = parent.context
+            val card = LinearLayout(ctx)
+            card.orientation = LinearLayout.HORIZONTAL
+            card.background = ContextCompat.getDrawable(ctx, R.drawable.bg_card)
+            card.clipToOutline = true
+            Ui.ripple(card)
+            val lp = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(dp(12), dp(4), dp(12), dp(4))
+            card.layoutParams = lp
+
+            val strip = View(ctx)
+            card.addView(strip, LinearLayout.LayoutParams(dp(5), ViewGroup.LayoutParams.MATCH_PARENT))
+
+            val col = LinearLayout(ctx)
+            col.orientation = LinearLayout.VERTICAL
+            col.setPadding(dp(12), dp(10), dp(12), dp(10))
+            val a = TextView(ctx)
             a.textSize = 13f
-            a.setTextColor(0xFF777777.toInt())
-            val b = TextView(parent.context)
-            b.textSize = 15f
-            box.addView(a)
-            box.addView(b)
-            return VH(box, a, b)
+            a.setTextColor(Ui.color(ctx, R.color.text2))
+            val b = TextView(ctx)
+            b.textSize = 16f
+            b.setPadding(0, dp(4), 0, 0)
+            val meta = LinearLayout(ctx)
+            meta.orientation = LinearLayout.HORIZONTAL
+            meta.gravity = Gravity.CENTER_VERTICAL
+            val draft = Ui.chip(ctx, "rascunho", Ui.color(ctx, R.color.warn_bg), Ui.color(ctx, R.color.warn))
+            val flag = Ui.chip(ctx, "⚑ revisar", Ui.color(ctx, R.color.info_bg), Ui.color(ctx, R.color.info))
+            val count = Ui.chip(ctx, "", Ui.color(ctx, R.color.tonal), Ui.color(ctx, R.color.text2))
+            meta.addView(draft, Ui.lp(ctx, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 6, 0))
+            meta.addView(flag, Ui.lp(ctx, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 6, 0))
+            meta.addView(count)
+            col.addView(a)
+            col.addView(b)
+            col.addView(meta, Ui.lp(ctx, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 0, 0))
+            card.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            return VH(card, strip, a, b, draft, flag, count)
         }
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val i = shown[position]
+            val ctx = holder.itemView.context
             val t = Store.trans[i]
             val lim = Store.limitOf(i)
-            holder.a.text = (if (Store.flags[i]) "⚑ " else "") + "#$i  ${Store.originals[i]}"
+            val over = t != null && lim > 0 && t.length > lim
+            val isDraft = t != null && Store.drafts[i]
+            val isFlag = Store.flags[i]
+
+            holder.a.text = "#$i  ${Store.originals[i]}"
             if (t == null) {
-                holder.b.text = "(toque para traduzir)"
-                holder.b.setTextColor(0xFF999999.toInt())
+                holder.b.text = "Toque para traduzir"
+                holder.b.setTextColor(Ui.color(ctx, R.color.text2))
             } else {
-                val draft = if (Store.drafts[i]) "  (rascunho)" else ""
-                holder.b.text = (if (lim > 0) "$t  [${t.length}/$lim]" else t) + draft
-                val over = lim > 0 && t.length > lim
-                holder.b.setTextColor(
-                    if (over) 0xFFD32F2F.toInt() else if (Store.drafts[i]) 0xFFEF6C00.toInt() else 0xFF2E7D32.toInt()
-                )
+                holder.b.text = t
+                holder.b.setTextColor(Ui.color(ctx, R.color.text))
             }
+            holder.strip.setBackgroundColor(
+                Ui.color(
+                    ctx,
+                    if (t == null) R.color.neutral
+                    else if (over) R.color.bad
+                    else if (isDraft) R.color.warn
+                    else R.color.good
+                )
+            )
+            holder.draft.visibility = if (isDraft) View.VISIBLE else View.GONE
+            holder.flag.visibility = if (isFlag) View.VISIBLE else View.GONE
+            if (t != null && lim > 0) {
+                holder.count.visibility = View.VISIBLE
+                holder.count.text = "${t.length}/$lim"
+                if (over) Ui.setChip(holder.count, Ui.color(ctx, R.color.bad_bg), Ui.color(ctx, R.color.bad))
+                else Ui.setChip(holder.count, Ui.color(ctx, R.color.tonal), Ui.color(ctx, R.color.text2))
+            } else {
+                holder.count.visibility = View.GONE
+            }
+
             holder.itemView.setOnClickListener { edit(i) }
             holder.itemView.setOnLongClickListener {
                 Store.flags[i] = !Store.flags[i]

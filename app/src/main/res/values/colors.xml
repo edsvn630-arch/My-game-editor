@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bar">#2F3E9E</color>
+    <color name="bar_dark">#232F7A</color>
+    <color name="primary">#3949AB</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="accent">#00A896</color>
+    <color name="on_accent">#FFFFFF</color>
+    <color name="bg">#F4F5FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="divider">#E1E4EE</color>
+    <color name="text">#1B1E2B</color>
+    <color name="text2">#667085</color>
+    <color name="tonal">#E8EBFA</color>
+    <color name="ripple">#22000000</color>
+    <color name="good">#2E7D32</color>
+    <color name="good_bg">#E3F3E5</color>
+    <color name="warn">#B26A00</color>
+    <color name="warn_bg">#FFF1D6</color>
+    <color name="bad">#C62828</color>
+    <color name="bad_bg">#FDE4E4</color>
+    <color name="info">#1565C0</color>
+    <color name="info_bg">#E1EEFB</color>
+    <color name="neutral">#C5CAD8</color>
+    <color name="thumb">#99667085</color>
+</resources>

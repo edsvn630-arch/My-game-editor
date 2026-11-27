@@ -2,9 +2,7 @@ package com.aintradutor.app
 
 import android.os.Bundle
 import android.text.InputType
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -29,124 +27,96 @@ class ToolsActivity : AppCompatActivity() {
     @Volatile
     private var stopFlag = false
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = Ui.dp(this, v)
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
     private fun minLen() = etMin.text.toString().trim().toIntOrNull() ?: 0
 
+    private fun numberInput(hint: String, value: String): EditText {
+        val e = Ui.input(this, hint)
+        e.inputType = InputType.TYPE_CLASS_NUMBER
+        e.setText(value)
+        return e
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "Repetidas e substituir"
+        title = "Repetidas, substituir e tradução"
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(dp(12), dp(8), dp(12), dp(24))
-
-        fun heading(t: String): TextView {
-            val v = TextView(this@ToolsActivity)
-            v.text = t
-            v.textSize = 17f
-            v.setTypeface(null, android.graphics.Typeface.BOLD)
-            v.setPadding(0, dp(16), 0, dp(4))
-            return v
-        }
-
-        fun btn(label: String, action: () -> Unit): Button {
-            val b = Button(this@ToolsActivity)
-            b.text = label
-            b.textSize = 12f
-            b.isAllCaps = false
-            b.setOnClickListener { action() }
-            b.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            return b
-        }
-
-        fun edit(hint: String): EditText {
-            val e = EditText(this@ToolsActivity)
-            e.hint = hint
-            e.inputType = InputType.TYPE_CLASS_TEXT
-            return e
-        }
+        root.setPadding(dp(12), dp(10), dp(12), dp(24))
 
         // desfazer (vale para a última ação feita aqui, no reajuste de linhas e nas repetidas)
-        val rowUndo = LinearLayout(this)
-        rowUndo.addView(btn("Desfazer última ação") { undo() })
-        root.addView(rowUndo)
+        root.addView(
+            Ui.button(this, "Desfazer última ação", false) { undo() },
+            Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0, 0, 8)
+        )
 
         // ---------- repetidas ----------
-        root.addView(heading("Falas repetidas"))
-        val explain = TextView(this)
-        explain.text = "Copia a tradução de um trecho para os trechos idênticos que ainda não foram traduzidos. " +
-            "Só mexe em trechos sem nenhuma tradução e ignora grupos com traduções diferentes."
-        explain.textSize = 13f
-        root.addView(explain)
-
-        etMin = edit("Ignorar trechos menores que (caracteres)")
-        etMin.inputType = InputType.TYPE_CLASS_NUMBER
-        etMin.setText("8")
-        root.addView(etMin)
-
+        val dup = Ui.card(this)
+        dup.addView(Ui.heading(this, "Falas repetidas"))
+        dup.addView(
+            Ui.secondary(
+                this,
+                "Copia a tradução de um trecho para os trechos idênticos que ainda não foram traduzidos. " +
+                    "Só mexe em trechos sem nenhuma tradução e ignora grupos com traduções diferentes."
+            ),
+            Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 4, 0, 10)
+        )
+        etMin = numberInput("Ignorar trechos menores que (caracteres)", "8")
+        dup.addView(etMin, Ui.lp(this, Ui.MATCH, dp(48), 0, 0, 0, 8))
         val rowDup = LinearLayout(this)
-        rowDup.addView(btn("Analisar") { analyzeDup() })
-        rowDup.addView(btn("Preencher repetidas") { fillDup() })
-        root.addView(rowDup)
-
-        dupInfo = TextView(this)
-        dupInfo.setPadding(0, dp(4), 0, 0)
-        root.addView(dupInfo)
+        rowDup.addView(Ui.button(this, "Analisar", false) { analyzeDup() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 6, 0, 1f))
+        rowDup.addView(Ui.button(this, "Preencher repetidas", true) { fillDup() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 0, 0, 1f))
+        dup.addView(rowDup)
+        dupInfo = Ui.secondary(this, "")
+        dup.addView(dupInfo, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 8, 0, 0))
+        root.addView(dup, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0, 0, 10))
 
         // ---------- localizar e substituir ----------
-        root.addView(heading("Localizar e substituir"))
-        val explain2 = TextView(this)
-        explain2.text = "Age só nas traduções, nunca no texto original."
-        explain2.textSize = 13f
-        root.addView(explain2)
-
-        etFind = edit("Localizar")
-        root.addView(etFind)
-        etRepl = edit("Substituir por")
-        root.addView(etRepl)
-
+        val rep = Ui.card(this)
+        rep.addView(Ui.heading(this, "Localizar e substituir"))
+        rep.addView(Ui.secondary(this, "Age só nas traduções, nunca no texto original."), Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 4, 0, 10))
+        etFind = Ui.input(this, "Localizar")
+        rep.addView(etFind, Ui.lp(this, Ui.MATCH, dp(48), 0, 0, 0, 8))
+        etRepl = Ui.input(this, "Substituir por")
+        rep.addView(etRepl, Ui.lp(this, Ui.MATCH, dp(48), 0, 0, 0, 4))
         cbCase = CheckBox(this)
         cbCase.text = "Diferenciar maiúsculas e minúsculas"
-        root.addView(cbCase)
+        rep.addView(cbCase)
         cbWhole = CheckBox(this)
         cbWhole.text = "Só palavra inteira"
-        root.addView(cbWhole)
-
+        rep.addView(cbWhole)
         val rowRep = LinearLayout(this)
-        rowRep.addView(btn("Contar") { countRep() })
-        rowRep.addView(btn("Substituir tudo") { applyRep() })
-        root.addView(rowRep)
-
-        repInfo = TextView(this)
-        repInfo.setPadding(0, dp(4), 0, 0)
-        root.addView(repInfo)
+        rowRep.addView(Ui.button(this, "Contar", false) { countRep() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 6, 0, 1f))
+        rowRep.addView(Ui.button(this, "Substituir tudo", true) { applyRep() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 0, 0, 1f))
+        rep.addView(rowRep, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6, 0, 0))
+        repInfo = Ui.secondary(this, "")
+        rep.addView(repInfo, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 8, 0, 0))
+        root.addView(rep, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0, 0, 10))
 
         // ---------- tradução automática ----------
-        root.addView(heading("Tradução automática (Google Tradutor)"))
-        val explain3 = TextView(this)
-        explain3.text = "Traduz com o Google Tradutor os trechos que ainda não têm nenhuma tradução e deixa como " +
-            "rascunho para você revisar (aparecem em laranja e em Problemas e reajuste). Precisa de internet."
-        explain3.textSize = 13f
-        root.addView(explain3)
-
-        etFrom = edit("A partir da fala #")
-        etFrom.inputType = InputType.TYPE_CLASS_NUMBER
-        etFrom.setText("0")
-        root.addView(etFrom)
-        etCount = edit("Quantidade de trechos")
-        etCount.inputType = InputType.TYPE_CLASS_NUMBER
-        etCount.setText("100")
-        root.addView(etCount)
-
+        val auto = Ui.card(this)
+        auto.addView(Ui.heading(this, "Tradução automática (Google Tradutor)"))
+        auto.addView(
+            Ui.secondary(
+                this,
+                "Traduz os trechos que ainda não têm nenhuma tradução e deixa como rascunho para você revisar " +
+                    "(aparecem em laranja e em Problemas e reajuste). Precisa de internet."
+            ),
+            Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 4, 0, 10)
+        )
+        etFrom = numberInput("A partir da fala #", "0")
+        auto.addView(etFrom, Ui.lp(this, Ui.MATCH, dp(48), 0, 0, 0, 8))
+        etCount = numberInput("Quantidade de trechos", "100")
+        auto.addView(etCount, Ui.lp(this, Ui.MATCH, dp(48), 0, 0, 0, 8))
         val rowAuto = LinearLayout(this)
-        rowAuto.addView(btn("Traduzir") { autoRun() })
-        rowAuto.addView(btn("Parar") { stopFlag = true })
-        root.addView(rowAuto)
-
-        autoInfo = TextView(this)
-        autoInfo.setPadding(0, dp(4), 0, 0)
-        root.addView(autoInfo)
+        rowAuto.addView(Ui.button(this, "Traduzir", true) { autoRun() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 6, 0, 1f))
+        rowAuto.addView(Ui.button(this, "Parar", false) { stopFlag = true }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 0, 0, 1f))
+        auto.addView(rowAuto)
+        autoInfo = Ui.secondary(this, "")
+        auto.addView(autoInfo, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 8, 0, 0))
+        root.addView(auto, Ui.lp(this, Ui.MATCH, Ui.WRAP))
 
         val scroll = ScrollView(this)
         scroll.addView(root)
@@ -180,8 +150,8 @@ class ToolsActivity : AppCompatActivity() {
         Thread {
             val st = Dup.analyze(m)
             runOnUiThread {
-                dupInfo.text = "${st.groups} grupos de falas repetidas • " +
-                    "${st.fill} falas sem tradução podem ser preenchidas • " +
+                dupInfo.text = "${st.groups} grupos de falas repetidas  •  " +
+                    "${st.fill} falas sem tradução podem ser preenchidas  •  " +
                     "${st.conflicts} grupos com traduções diferentes (ignorados)"
             }
         }.start()

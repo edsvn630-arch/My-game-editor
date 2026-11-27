@@ -31,7 +31,7 @@ class FastScrollBar(
     private var dragPos = 0
 
     init {
-        textPaint.color = Color.WHITE
+        textPaint.color = Ui.color(ctx, R.color.on_accent)
         textPaint.textSize = 16 * d
         rv.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -58,7 +58,7 @@ class FastScrollBar(
         val f = if (dragging) dragFrac else currentFraction()
         val top = f * (height - thumbH)
         val right = width - 4 * d
-        paint.color = if (dragging) 0xFF1976D2.toInt() else 0x99555555.toInt()
+        paint.color = if (dragging) Ui.color(context, R.color.accent) else Ui.color(context, R.color.thumb)
         c.drawRoundRect(right - thumbW, top, right, top + thumbH, thumbW / 2, thumbW / 2, paint)
         if (dragging) {
             val t = label(dragPos)
@@ -67,7 +67,7 @@ class FastScrollBar(
             val bh = 36 * d
             val bt = (top + thumbH / 2 - bh / 2).coerceIn(0f, height - bh)
             val br = right - thumbW - 8 * d
-            paint.color = 0xDD1976D2.toInt()
+            paint.color = Ui.color(context, R.color.accent)
             c.drawRoundRect(br - tw - 2 * pad, bt, br, bt + bh, 8 * d, 8 * d, paint)
             c.drawText(t, br - tw - pad, bt + bh / 2 + textPaint.textSize / 3, textPaint)
         }

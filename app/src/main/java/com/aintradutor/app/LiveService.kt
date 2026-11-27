@@ -137,7 +137,7 @@ class LiveService : Service() {
         v.textSize = 14f
         val bg = GradientDrawable()
         bg.shape = GradientDrawable.OVAL
-        bg.setColor(0xCC1976D2.toInt())
+        bg.setColor(0xE63949AB.toInt())
         v.background = bg
 
         val type = if (Build.VERSION.SDK_INT >= 26) {

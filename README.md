@@ -11,6 +11,7 @@ Editor de falas dos jogos da AliceSoft (.ain, System 4) para Android.
 - OCR do modo ao vivo com PaddleOCR (PP-OCRv5 mobile, alfabeto latino) via ONNX Runtime; os modelos (~12 MB) são baixados uma vez e depois funciona offline
 - Um projeto por jogo (as traduções de cada .ain ficam separadas e são retomadas ao reabrir o mesmo arquivo); lê .ain comprimido (AI2) e sem compressão
 - Marcar falas para revisar (⚑) e tela de progresso por trecho do jogo
+- Visual novo: tema claro/escuro automático, cartões coloridos por situação (verde traduzida, laranja rascunho, vermelho passou do limite), barra de progresso, tela inicial e botão flutuante "Ao vivo"
 - Menu de três pontinhos com todas as opções
 - Salvar direto na pasta do jogo (escolhe a pasta uma vez; guarda cópia .bak do arquivo original)
 - Tradução automática inglês → português pelo Google Tradutor (online), como rascunho para revisar

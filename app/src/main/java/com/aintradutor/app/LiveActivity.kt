@@ -4,8 +4,8 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
-import android.view.ViewGroup
-import android.widget.Button
+import android.view.Gravity
+import android.view.View
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -13,6 +13,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 
 class LiveActivity : AppCompatActivity() {
@@ -26,71 +27,58 @@ class LiveActivity : AppCompatActivity() {
     private lateinit var info: TextView
     private lateinit var etFind: EditText
     private lateinit var scroll: ScrollView
-    private val shownIdx = ArrayList<Int>()
     private lateinit var ocrBox: LinearLayout
+    private val shownIdx = ArrayList<Int>()
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = Ui.dp(this, v)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        title = "Cena ao vivo"
         Store.loadPrefs(applicationContext)
         Store.restore(applicationContext)
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
 
-        fun btn(label: String, action: () -> Unit): Button {
-            val b = Button(this@LiveActivity)
-            b.text = label
-            b.textSize = 12f
-            b.isAllCaps = false
-            b.setOnClickListener { action() }
-            b.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            return b
-        }
+        val nav = LinearLayout(this)
+        nav.addView(Ui.button(this, "◀  Anteriores", false) { goPrev() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 6, 0, 1f))
+        nav.addView(Ui.button(this, "Próximas  ▶", false) { goNext() }, Ui.lp(this, 0, Ui.WRAP, 0, 0, 6, 0, 1f))
+        nav.addView(
+            Ui.button(this, "Voltar ao jogo", true) {
+                Store.persistAsync(applicationContext)
+                moveTaskToBack(true)
+            },
+            Ui.lp(this, 0, Ui.WRAP, 0, 0, 0, 0, 1f)
+        )
+        root.addView(nav, Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 10, 12, 6))
 
-        val row1 = LinearLayout(this)
-        row1.addView(btn("◀ Anteriores") { goPrev() })
-        row1.addView(btn("Próximas ▶") { goNext() })
-        row1.addView(btn("Voltar ao jogo") {
-            Store.persistAsync(applicationContext)
-            moveTaskToBack(true)
-        })
-        root.addView(row1)
+        val findRow = LinearLayout(this)
+        findRow.gravity = Gravity.CENTER_VERTICAL
+        etFind = Ui.input(this, "Buscar fala (original ou tradução)")
+        findRow.addView(etFind, Ui.lp(this, 0, dp(48), 0, 0, 8, 0, 1f))
+        findRow.addView(Ui.button(this, "Ir", false) { find() }, Ui.lp(this, Ui.WRAP, dp(48)))
+        root.addView(findRow, Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 0, 12, 6))
 
-        val row2 = LinearLayout(this)
-        row2.setPadding(dp(8), 0, dp(8), 0)
-        etFind = EditText(this)
-        etFind.hint = "Buscar fala (original ou tradução)"
-        etFind.inputType = InputType.TYPE_CLASS_TEXT
-        etFind.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        row2.addView(etFind)
-        row2.addView(Button(this).also {
-            it.text = "Ir"
-            it.setOnClickListener { find() }
-        })
-        root.addView(row2)
+        root.addView(
+            Ui.button(this, "Sugerir tradução (auto) para as falas desta tela", false) { suggest() },
+            Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 0, 12, 6)
+        )
 
-        val row3 = LinearLayout(this)
-        row3.addView(btn("Sugerir tradução (auto) para as falas desta tela") { suggest() })
-        root.addView(row3)
+        ocrBox = Ui.card(this)
+        ocrBox.visibility = View.GONE
+        root.addView(ocrBox, Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 0, 12, 6))
 
-        ocrBox = LinearLayout(this)
-        ocrBox.orientation = LinearLayout.VERTICAL
-        ocrBox.setPadding(dp(12), dp(4), dp(12), 0)
-        root.addView(ocrBox)
-
-        info = TextView(this)
-        info.setPadding(dp(12), dp(4), dp(12), dp(4))
+        info = Ui.secondary(this, "")
+        info.setPadding(dp(16), dp(2), dp(16), dp(4))
         root.addView(info)
 
         scroll = ScrollView(this)
-        scroll.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
         list = LinearLayout(this)
         list.orientation = LinearLayout.VERTICAL
         list.setPadding(dp(12), 0, dp(12), dp(24))
         scroll.addView(list)
-        root.addView(scroll)
+        root.addView(scroll, Ui.lp(this, Ui.MATCH, 0, 0, 0, 0, 0, 1f))
 
         setContentView(root)
         handle(intent)
@@ -108,7 +96,10 @@ class LiveActivity : AppCompatActivity() {
     }
 
     private fun handle(i: Intent) {
-        if (i.getBooleanExtra("ocr", false)) renderOcr() else ocrBox.removeAllViews()
+        if (i.getBooleanExtra("ocr", false)) renderOcr() else {
+            ocrBox.removeAllViews()
+            ocrBox.visibility = View.GONE
+        }
         val s = i.getIntExtra("start", -1)
         highlights = i.getIntArrayExtra("found")?.toSet() ?: emptySet()
         if (s >= 0) {
@@ -140,54 +131,69 @@ class LiveActivity : AppCompatActivity() {
             i++
         }
         nextStart = i
-        info.text = "Falas #$start a #$last  (em azul: as que estão na tela)"
+        info.text = "Falas #$start a #$last  •  em azul: as que estão na tela"
         scroll.scrollTo(0, 0)
     }
 
     private fun addRow(i: Int) {
-        val o = TextView(this)
-        o.text = "#$i  ${Store.originals[i]}"
-        o.textSize = 15f
-        o.setPadding(dp(4), dp(10), dp(4), 0)
-        if (i in highlights) {
-            o.setTextColor(0xFF0D47A1.toInt())
-            o.setTypeface(null, Typeface.BOLD)
-        } else {
-            o.setTextColor(0xFF555555.toInt())
-        }
-        val et = EditText(this)
-        et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        et.hint = "Tradução"
-        et.setText(Store.trans[i] ?: "")
+        val card = Ui.card(this)
+        val hot = i in highlights
 
-        val row = LinearLayout(this)
-        row.gravity = android.view.Gravity.CENTER_VERTICAL
-        val counter = TextView(this)
-        counter.textSize = 13f
-        counter.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        // cabeçalho: número, rascunho, revisar
+        val head = LinearLayout(this)
+        head.gravity = Gravity.CENTER_VERTICAL
+        val idChip = Ui.chip(
+            this, "#$i",
+            Ui.color(this, if (hot) R.color.info_bg else R.color.tonal),
+            Ui.color(this, if (hot) R.color.info else R.color.text2)
+        )
+        val draftChip = Ui.chip(this, "rascunho", Ui.color(this, R.color.warn_bg), Ui.color(this, R.color.warn))
+        val spacer = View(this)
         val cbFlag = CheckBox(this)
-        cbFlag.text = "⚑"
+        cbFlag.text = "⚑ revisar"
+        cbFlag.textSize = 12f
         cbFlag.isChecked = Store.flags[i]
         cbFlag.setOnCheckedChangeListener { _, c -> Store.flags[i] = c }
-        val lbl = TextView(this)
-        lbl.text = "Limite:"
-        lbl.textSize = 12f
+        head.addView(idChip, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 0, 6, 0))
+        head.addView(draftChip)
+        head.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
+        head.addView(cbFlag)
+        card.addView(head)
+
+        val orig = TextView(this)
+        orig.text = Store.originals[i]
+        orig.textSize = 15f
+        orig.setPadding(0, dp(4), 0, dp(8))
+        orig.setTextColor(Ui.color(this, if (hot) R.color.info else R.color.text2))
+        if (hot) orig.setTypeface(null, Typeface.BOLD)
+        card.addView(orig)
+
+        val et = Ui.input(this, "Tradução")
+        et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        et.setText(Store.trans[i] ?: "")
+        card.addView(et, Ui.lp(this, Ui.MATCH, Ui.WRAP))
+
+        val row = LinearLayout(this)
+        row.gravity = Gravity.CENTER_VERTICAL
+        val counter = TextView(this)
+        counter.textSize = 13f
+        val lbl = Ui.secondary(this, "Limite:")
         val etLim = EditText(this)
         etLim.inputType = InputType.TYPE_CLASS_NUMBER
         etLim.hint = Store.globalLimit.toString()
+        etLim.textSize = 14f
         if (Store.limits[i] > 0) etLim.setText(Store.limits[i].toString())
-        etLim.layoutParams = LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT)
-        row.addView(counter)
-        row.addView(cbFlag)
-        row.addView(lbl)
-        row.addView(etLim)
+        row.addView(counter, LinearLayout.LayoutParams(0, Ui.WRAP, 1f))
+        row.addView(lbl, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 0, 6, 0))
+        row.addView(etLim, LinearLayout.LayoutParams(dp(64), Ui.WRAP))
+        card.addView(row, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6, 0, 0))
 
         fun upd() {
             val lim = Store.limitOf(i)
             val n = et.text.length
-            val base = if (lim > 0) "$n / $lim" else "$n"
-            counter.text = base + (if (Store.drafts[i]) "  • rascunho automático" else "")
-            counter.setTextColor(if (lim > 0 && n > lim) 0xFFD32F2F.toInt() else 0xFF777777.toInt())
+            counter.text = if (lim > 0) "$n / $lim" else "$n"
+            counter.setTextColor(Ui.color(this, if (lim > 0 && n > lim) R.color.bad else R.color.text2))
+            draftChip.visibility = if (Store.drafts[i] && Store.trans[i] != null) View.VISIBLE else View.GONE
         }
         et.doAfterTextChanged {
             Store.setTrans(i, it?.toString() ?: "")
@@ -199,9 +205,52 @@ class LiveActivity : AppCompatActivity() {
         }
         upd()
 
-        list.addView(o)
-        list.addView(et)
-        list.addView(row)
+        list.addView(card, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4, 0, 4))
+    }
+
+    private fun renderOcr() {
+        ocrBox.removeAllViews()
+        ocrBox.visibility = View.VISIBLE
+        val head = Ui.heading(this, "O OCR leu")
+        head.textSize = 14f
+        ocrBox.addView(head)
+        ocrBox.addView(Ui.secondary(this, "Toque numa linha azul para buscar no .ain"))
+        for (d in Paddle.debug.take(9)) {
+            val tv = TextView(this)
+            tv.text = d
+            tv.textSize = 12f
+            tv.setPadding(0, dp(4), 0, dp(4))
+            val txt = d.substringAfter(" | ", "")
+            if (txt.isNotEmpty()) {
+                tv.setTextColor(Ui.color(this, R.color.info))
+                tv.setOnClickListener { jump(txt) }
+            } else {
+                tv.setTextColor(Ui.color(this, R.color.text2))
+            }
+            ocrBox.addView(tv)
+        }
+    }
+
+    private fun jump(text: String) {
+        val r = Store.match(listOf(text))
+        if (r.isNotEmpty()) {
+            start = r.min()
+            highlights = r.toSet()
+            render()
+            return
+        }
+        val q = text.trim()
+        val o = Store.originals
+        for (i in o.indices) {
+            val t = Store.trans[i]
+            if (o[i].contains(q, true) || (t != null && t.contains(q, true))) {
+                start = i
+                highlights = setOf(i)
+                render()
+                return
+            }
+        }
+        Toast.makeText(this, "Não achei essa linha nas falas", Toast.LENGTH_SHORT).show()
     }
 
     private fun suggest() {
@@ -231,49 +280,6 @@ class LiveActivity : AppCompatActivity() {
                 }
             }
         }.start()
-    }
-
-    private fun renderOcr() {
-        ocrBox.removeAllViews()
-        val head = TextView(this)
-        head.text = "O OCR leu (toque numa linha azul para buscar):"
-        head.textSize = 12f
-        head.setTypeface(null, Typeface.BOLD)
-        ocrBox.addView(head)
-        for (d in Paddle.debug.take(9)) {
-            val tv = TextView(this)
-            tv.text = d
-            tv.textSize = 12f
-            tv.setPadding(0, dp(3), 0, dp(3))
-            val txt = d.substringAfter(" | ", "")
-            if (txt.isNotEmpty()) {
-                tv.setTextColor(0xFF1565C0.toInt())
-                tv.setOnClickListener { jump(txt) }
-            }
-            ocrBox.addView(tv)
-        }
-    }
-
-    private fun jump(text: String) {
-        val r = Store.match(listOf(text))
-        if (r.isNotEmpty()) {
-            start = r.min()
-            highlights = r.toSet()
-            render()
-            return
-        }
-        val q = text.trim()
-        val o = Store.originals
-        for (i in o.indices) {
-            val t = Store.trans[i]
-            if (o[i].contains(q, true) || (t != null && t.contains(q, true))) {
-                start = i
-                highlights = setOf(i)
-                render()
-                return
-            }
-        }
-        Toast.makeText(this, "Não achei essa linha nas falas", Toast.LENGTH_SHORT).show()
     }
 
     private fun goNext() {
