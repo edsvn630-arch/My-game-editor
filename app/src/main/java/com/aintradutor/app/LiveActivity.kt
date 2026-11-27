@@ -26,6 +26,7 @@ class LiveActivity : AppCompatActivity() {
     private lateinit var etFind: EditText
     private lateinit var scroll: ScrollView
     private val shownIdx = ArrayList<Int>()
+    private lateinit var ocrBox: LinearLayout
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -59,7 +60,7 @@ class LiveActivity : AppCompatActivity() {
         val row2 = LinearLayout(this)
         row2.setPadding(dp(8), 0, dp(8), 0)
         etFind = EditText(this)
-        etFind.hint = "Buscar fala (em inglês)"
+        etFind.hint = "Buscar fala (original ou tradução)"
         etFind.inputType = InputType.TYPE_CLASS_TEXT
         etFind.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         row2.addView(etFind)
@@ -72,6 +73,11 @@ class LiveActivity : AppCompatActivity() {
         val row3 = LinearLayout(this)
         row3.addView(btn("Sugerir tradução (auto) para as falas desta tela") { suggest() })
         root.addView(row3)
+
+        ocrBox = LinearLayout(this)
+        ocrBox.orientation = LinearLayout.VERTICAL
+        ocrBox.setPadding(dp(12), dp(4), dp(12), 0)
+        root.addView(ocrBox)
 
         info = TextView(this)
         info.setPadding(dp(12), dp(4), dp(12), dp(4))
@@ -101,6 +107,7 @@ class LiveActivity : AppCompatActivity() {
     }
 
     private fun handle(i: Intent) {
+        if (i.getBooleanExtra("ocr", false)) renderOcr() else ocrBox.removeAllViews()
         val s = i.getIntExtra("start", -1)
         highlights = i.getIntArrayExtra("found")?.toSet() ?: emptySet()
         if (s >= 0) {
@@ -220,6 +227,49 @@ class LiveActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun renderOcr() {
+        ocrBox.removeAllViews()
+        val head = TextView(this)
+        head.text = "O OCR leu (toque numa linha azul para buscar):"
+        head.textSize = 12f
+        head.setTypeface(null, Typeface.BOLD)
+        ocrBox.addView(head)
+        for (d in Paddle.debug.take(9)) {
+            val tv = TextView(this)
+            tv.text = d
+            tv.textSize = 12f
+            tv.setPadding(0, dp(3), 0, dp(3))
+            val txt = d.substringAfter(" | ", "")
+            if (txt.isNotEmpty()) {
+                tv.setTextColor(0xFF1565C0.toInt())
+                tv.setOnClickListener { jump(txt) }
+            }
+            ocrBox.addView(tv)
+        }
+    }
+
+    private fun jump(text: String) {
+        val r = Store.match(listOf(text))
+        if (r.isNotEmpty()) {
+            start = r.min()
+            highlights = r.toSet()
+            render()
+            return
+        }
+        val q = text.trim()
+        val o = Store.originals
+        for (i in o.indices) {
+            val t = Store.trans[i]
+            if (o[i].contains(q, true) || (t != null && t.contains(q, true))) {
+                start = i
+                highlights = setOf(i)
+                render()
+                return
+            }
+        }
+        Toast.makeText(this, "Não achei essa linha nas falas", Toast.LENGTH_SHORT).show()
+    }
+
     private fun goNext() {
         if (nextStart < Store.originals.size) {
             start = nextStart
@@ -252,7 +302,8 @@ class LiveActivity : AppCompatActivity() {
         if (q.isEmpty()) return
         val o = Store.originals
         for (i in o.indices) {
-            if (o[i].contains(q, true)) {
+            val tr = Store.trans[i]
+            if (o[i].contains(q, true) || (tr != null && tr.contains(q, true))) {
                 start = i
                 highlights = setOf(i)
                 render()

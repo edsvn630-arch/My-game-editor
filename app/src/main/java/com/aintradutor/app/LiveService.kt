@@ -236,6 +236,7 @@ class LiveService : Service() {
         val i = Intent(this, LiveActivity::class.java)
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         i.putExtra("found", found)
+        i.putExtra("ocr", true)
         i.putExtra("start", if (found.isEmpty()) -1 else found.min())
         startActivity(i)
     }

@@ -178,9 +178,11 @@ object Store {
 
     // ---------- achar a fala que está na tela ----------
 
+    /** Texto "comparável": sem acentos, pontuação e maiúsculas, e sem confusões típicas do OCR (l/1/I, 0/O). */
     fun norm(s: String): String {
-        val sb = StringBuilder(s.length)
-        for (c in s) {
+        val d = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+        val sb = StringBuilder(d.length)
+        for (c in d) {
             if (c.isLetterOrDigit()) {
                 sb.append(
                     when (c) {
@@ -194,49 +196,61 @@ object Store {
         return sb.toString()
     }
 
-    private fun ensureIndex() {
-        if (index != null) return
+    /**
+     * Recebe as linhas lidas pelo OCR e devolve os números das falas encontradas.
+     * Compara com o original E com a tradução de cada fala (o jogo pode estar mostrando qualquer um).
+     * Linhas curtas (como o nome de quem fala) pesam pouco; linhas longas decidem a cena.
+     */
+    fun match(lines: List<String>): IntArray {
         val m = HashMap<String, ArrayList<Int>>()
         for (i in originals.indices) {
-            val n = norm(originals[i])
-            if (n.length >= 3) m.getOrPut(n) { ArrayList() }.add(i)
-        }
-        index = m
-        keys = m.keys.toTypedArray()
-    }
-
-    /** Recebe as linhas lidas pelo OCR e devolve os números das falas encontradas. */
-    fun match(lines: List<String>): IntArray {
-        ensureIndex()
-        val idx = index ?: return IntArray(0)
-        val groups = ArrayList<IntArray>()
-        for (ln in lines) {
-            val n = norm(ln)
-            if (n.length < 4) continue
-            val ex = idx[n]
-            val g = if (ex != null) ex.toIntArray() else fuzzy(n, idx)
-            if (g != null && g.size <= 30) groups.add(g)
-        }
-        if (groups.isEmpty()) return IntArray(0)
-
-        var best = -1
-        var bestScore = -1
-        for (g in groups) {
-            for (c in g) {
-                var s = 0
-                for (h in groups) if (h.any { Math.abs(it - c) <= 8 }) s++
-                if (s > bestScore) {
-                    bestScore = s
-                    best = c
-                }
+            val a = norm(originals[i])
+            if (a.length >= 3) m.getOrPut(a) { ArrayList() }.add(i)
+            val t = trans[i]
+            if (t != null) {
+                val b = norm(t)
+                if (b.length >= 3 && b != a) m.getOrPut(b) { ArrayList() }.add(i)
             }
         }
-        val out = java.util.TreeSet<Int>()
-        for (g in groups) {
-            val near = g.filter { Math.abs(it - best) <= 8 }
-            if (near.isNotEmpty()) out.add(near.minByOrNull { Math.abs(it - best) }!!)
+        keys = m.keys.toTypedArray()
+
+        for (minLen in intArrayOf(6, 4)) {
+            val groups = ArrayList<IntArray>()
+            val weights = ArrayList<Int>()
+            for (ln in lines) {
+                val n = norm(ln)
+                if (n.length < minLen) continue
+                val ex = m[n]
+                val g = if (ex != null) ex.toIntArray() else fuzzy(n, m)
+                if (g != null && g.size <= 30) {
+                    groups.add(g)
+                    weights.add(n.length)
+                }
+            }
+            if (groups.isEmpty()) continue
+
+            var best = -1
+            var bestScore = -1
+            for (gi in groups.indices) {
+                for (c in groups[gi]) {
+                    var s = 0
+                    for (hi in groups.indices) {
+                        if (groups[hi].any { Math.abs(it - c) <= 8 }) s += weights[hi]
+                    }
+                    if (s > bestScore) {
+                        bestScore = s
+                        best = c
+                    }
+                }
+            }
+            val out = java.util.TreeSet<Int>()
+            for (g in groups) {
+                val near = g.filter { Math.abs(it - best) <= 8 }
+                if (near.isNotEmpty()) out.add(near.minByOrNull { Math.abs(it - best) }!!)
+            }
+            return out.toIntArray()
         }
-        return out.toIntArray()
+        return IntArray(0)
     }
 
     private fun fuzzy(n: String, idx: HashMap<String, ArrayList<Int>>): IntArray? {

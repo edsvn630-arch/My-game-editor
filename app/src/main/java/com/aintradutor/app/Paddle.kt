@@ -49,7 +49,13 @@ object Paddle {
     private var rec: OrtSession? = null
     private var dict: List<String> = emptyList()
 
+    /** O que o OCR leu na última captura (para o painel de diagnóstico). */
+    @Volatile
+    var debug: List<String> = emptyList()
+
     private class Box(val x0: Int, val y0: Int, val x1: Int, val y1: Int)
+
+    private class Line(val text: String, val conf: Float)
 
     fun dir(ctx: Context) = File(ctx.filesDir, "paddle")
 
@@ -237,6 +243,8 @@ object Paddle {
         load(ctx)
         val boxes = sortBoxes(detect(bmp))
         val out = ArrayList<String>()
+        val dbg = ArrayList<String>()
+        dbg.add("tela ${bmp.width}x${bmp.height} • caixas de texto achadas: ${boxes.size}")
         for (b in boxes) {
             val w = b.x1 - b.x0
             val h = b.y1 - b.y0
@@ -244,8 +252,14 @@ object Paddle {
             val crop = Bitmap.createBitmap(bmp, b.x0, b.y0, w, h)
             val r = readLine(crop)
             crop.recycle()
-            if (r != null && r.isNotBlank()) out.add(r.trim())
+            if (r != null) {
+                out.add(r.text.trim())
+                dbg.add(String.format("%.2f | %s", r.conf, r.text.trim()))
+            } else {
+                dbg.add("— (caixa ${w}x$h sem texto legível)")
+            }
         }
+        debug = dbg
         return out
     }
 
@@ -332,7 +346,7 @@ object Paddle {
                 }
             }
             if (cnt < 10) continue
-            if (sum / cnt < 0.6) continue
+            if (sum / cnt < 0.5) continue
             val bw = maxX - minX + 1
             val bh = maxY - minY + 1
             if (minOf(bw, bh) < 3) continue
@@ -364,9 +378,7 @@ object Paddle {
         return l
     }
 
-    private fun readLine(crop: Bitmap): String? {
-        val e = env ?: return null
-        val s = rec ?: return null
+    private fun readLine(crop: Bitmap): Line? {
         val h = 48
         val w = ceil(h * crop.width.toFloat() / crop.height).toInt().coerceIn(16, 3200)
         val scaled = Bitmap.createScaledBitmap(crop, w, h, true)
@@ -374,18 +386,40 @@ object Paddle {
         val px = IntArray(area)
         scaled.getPixels(px, 0, w, 0, 0, w, h)
         if (scaled !== crop) scaled.recycle()
+
+        val a = decode(tensorData(px, area, false), w, h)
+        var best = a
+        if (a.conf < 0.85f) {
+            // texto claro sobre fundo escuro: tenta também com as cores invertidas
+            val b = decode(tensorData(px, area, true), w, h)
+            if (b.conf > a.conf) best = b
+        }
+        return if (best.text.isBlank()) null else best
+    }
+
+    private fun tensorData(px: IntArray, area: Int, invert: Boolean): FloatArray {
         val data = FloatArray(3 * area)
         for (i in 0 until area) {
             val p = px[i]
-            val r = (p shr 16) and 0xFF
-            val g = (p shr 8) and 0xFF
-            val b = p and 0xFF
+            var r = (p shr 16) and 0xFF
+            var g = (p shr 8) and 0xFF
+            var b = p and 0xFF
+            if (invert) {
+                r = 255 - r
+                g = 255 - g
+                b = 255 - b
+            }
             data[i] = b / 127.5f - 1f
             data[area + i] = g / 127.5f - 1f
             data[2 * area + i] = r / 127.5f - 1f
         }
+        return data
+    }
 
-        var text: String? = null
+    private fun decode(data: FloatArray, w: Int, h: Int): Line {
+        val e = env ?: return Line("", 0f)
+        val s = rec ?: return Line("", 0f)
+        var result = Line("", 0f)
         OnnxTensor.createTensor(e, FloatBuffer.wrap(data), longArrayOf(1, 3, h.toLong(), w.toLong())).use { t ->
             s.run(mapOf(s.inputNames.iterator().next() to t)).use { res ->
                 val tensor = res.get(0) as OnnxTensor
@@ -427,9 +461,9 @@ object Paddle {
                     }
                     last = best
                 }
-                text = if (n > 0 && conf / n >= 0.4f) sb.toString() else null
+                result = Line(sb.toString(), if (n > 0) conf / n else 0f)
             }
         }
-        return text
+        return result
     }
 }
