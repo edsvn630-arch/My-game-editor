@@ -39,6 +39,11 @@
             android:exported="false"
             android:label="Repetidas e substituir" />
 
+        <activity
+            android:name=".ProgressActivity"
+            android:exported="false"
+            android:label="Progresso do jogo" />
+
         <service
             android:name=".LiveService"
             android:exported="false"

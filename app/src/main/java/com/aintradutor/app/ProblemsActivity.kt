@@ -198,8 +198,12 @@ class ProblemsActivity : AppCompatActivity() {
             holder.b.text = Store.trans[p.idx] ?: Store.originals[p.idx]
             holder.itemView.setOnClickListener { open(p.idx) }
             holder.itemView.setOnLongClickListener {
-                if (p.idx in Store.drafts.indices && Store.drafts[p.idx]) {
-                    Store.drafts[p.idx] = false
+                val i = p.idx
+                val isDraft = i in Store.drafts.indices && Store.drafts[i]
+                val isFlag = i in Store.flags.indices && Store.flags[i]
+                if (isDraft || isFlag) {
+                    if (isDraft) Store.drafts[i] = false
+                    if (isFlag) Store.flags[i] = false
                     Store.persistAsync(applicationContext)
                     toast("Marcada como revisada")
                     rescan()

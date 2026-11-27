@@ -8,6 +8,7 @@ object Check {
     const val CHARS = 4
     const val INCOMPLETA = 5
     const val RASCUNHO = 6
+    const val MARCADA = 7
 
     val names = arrayOf(
         "Todos",
@@ -16,7 +17,8 @@ object Check {
         "Marcador faltando",
         "Caracteres que viram ?",
         "Fala incompleta",
-        "Rascunho automático (revisar)"
+        "Rascunho automático (revisar)",
+        "Marcada para revisar"
     )
 
     class Problem(val idx: Int, val kind: Int, val info: String)
@@ -69,6 +71,9 @@ object Check {
                     out.add(Problem(u[0], NAO_CABE, r.reason))
                 }
             }
+        }
+        for (i in Store.flags.indices) {
+            if (Store.flags[i]) out.add(Problem(i, MARCADA, "marcada por você"))
         }
         out.sortBy { it.idx }
         return out

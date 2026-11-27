@@ -9,6 +9,8 @@ Editor de falas dos jogos da AliceSoft (.ain, System 4) para Android.
 - Problemas e reajuste: lista falas que passam do limite, sem marcador, com caracteres que viram "?" ou incompletas; "Reajustar falas largas" redistribui as palavras nas mesmas linhas do trecho (com desfazer)
 - Repetidas e substituir: preenche trechos idênticos ainda sem tradução e faz localizar/substituir nas traduções (com desfazer)
 - OCR do modo ao vivo com PaddleOCR (PP-OCRv5 mobile, alfabeto latino) via ONNX Runtime; os modelos (~12 MB) são baixados uma vez e depois funciona offline
+- Um projeto por jogo (as traduções de cada .ain ficam separadas e são retomadas ao reabrir o mesmo arquivo); lê .ain comprimido (AI2) e sem compressão
+- Marcar falas para revisar (⚑) e tela de progresso por trecho do jogo
 - Menu de três pontinhos com todas as opções
 - Salvar direto na pasta do jogo (escolhe a pasta uma vez; guarda cópia .bak do arquivo original)
 - Tradução automática inglês → português pelo Google Tradutor (online), como rascunho para revisar

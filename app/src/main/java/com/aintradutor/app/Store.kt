@@ -3,25 +3,28 @@ package com.aintradutor.app
 import android.content.Context
 import java.io.File
 
-/** Estado compartilhado entre as telas, o modo ao vivo e o serviço. */
+/** Estado compartilhado entre as telas, o modo ao vivo e o serviço. Cada jogo é um "projeto". */
 object Store {
     var ain: AinFile? = null
     var originals: Array<String> = emptyArray()
     var trans: Array<String?> = arrayOfNulls(0)
     var limits: IntArray = IntArray(0) // limite individual por fala (0 = usa o limite geral)
     var drafts: BooleanArray = BooleanArray(0) // true = tradução automática ainda não revisada
+    var flags: BooleanArray = BooleanArray(0) // true = marcada por você para revisar
     var globalLimit: Int = 50
     var undo: Array<String?>? = null // cópia das traduções antes da última ação em lote
     var showEmpty: Boolean = false // mostrar na lista as falas vazias do .ain
     var stripAccents: Boolean = true // remover acentos e ç ao salvar o .ain
-    var gameDir: String? = null // pasta do jogo (Uri da árvore do Android)
+    var gameDir: String? = null // pasta do jogo do projeto atual (Uri da árvore do Android)
     var gameName: String = "" // nome do arquivo .ain dentro da pasta do jogo
     var openedName: String = "" // nome do .ain que foi aberto
+    var projectId: String = "" // projeto (jogo) atual
 
-    private var index: HashMap<String, ArrayList<Int>>? = null
     private var keys: Array<String> = emptyArray()
     private var unitsCache: List<IntArray>? = null
     private var unitIdx: IntArray = IntArray(0)
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE)
 
     private fun apply(f: AinFile) {
         ain = f
@@ -29,70 +32,180 @@ object Store {
         trans = arrayOfNulls(originals.size)
         limits = IntArray(originals.size)
         drafts = BooleanArray(originals.size)
+        flags = BooleanArray(originals.size)
         undo = null
-        index = null
         unitsCache = null
     }
 
-    /** Abre um .ain novo (zera as traduções) e guarda uma cópia no app. */
-    fun load(ctx: Context, data: ByteArray) {
-        apply(AinFile.parse(data))
-        File(ctx.filesDir, "current.ain").writeBytes(data)
-        persist(ctx)
+    // ---------- projetos (um por jogo) ----------
+
+    private fun projectsDir(ctx: Context) = File(ctx.filesDir, "projects")
+    private fun dirOf(ctx: Context, id: String) = File(projectsDir(ctx), id)
+
+    fun sanitize(name: String): String {
+        val base = name.substringBeforeLast('.', name).trim()
+        val s = base.replace(Regex("[^A-Za-z0-9_-]"), "_").trim('_')
+        return if (s.isEmpty()) "jogo" else s.take(40)
     }
 
-    /** Recupera o último .ain e as traduções caso o app tenha sido fechado pelo sistema. */
+    fun listProjects(ctx: Context): List<String> =
+        (projectsDir(ctx).listFiles() ?: emptyArray())
+            .filter { File(it, "current.ain").exists() }
+            .map { it.name }
+            .sorted()
+
+    /** Versões antigas guardavam um único jogo na raiz: vira o projeto "jogo". */
+    private fun migrateLegacy(ctx: Context) {
+        val old = File(ctx.filesDir, "current.ain")
+        if (!old.exists()) return
+        val d = dirOf(ctx, "jogo")
+        d.mkdirs()
+        for (n in listOf("current.ain", "trans.csv", "limits.csv", "drafts.csv")) {
+            val f = File(ctx.filesDir, n)
+            if (f.exists()) f.renameTo(File(d, n))
+        }
+        val p = prefs(ctx)
+        p.edit()
+            .putString("project", "jogo")
+            .putString("gdir_jogo", p.getString("gdir", null))
+            .putString("gname_jogo", p.getString("gname", ""))
+            .apply()
+    }
+
+    private fun readSidecars(ctx: Context): Int {
+        val d = dirOf(ctx, projectId)
+        val meta = File(d, "meta.txt")
+        if (meta.exists() && meta.readText().trim().toIntOrNull() != originals.size) return 0
+        var count = 0
+        val t = File(d, "trans.csv")
+        if (t.exists()) {
+            for (r in Csv.parse(t.readText())) {
+                val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
+                val s = r.getOrNull(1) ?: continue
+                if (id in trans.indices && s.isNotEmpty()) {
+                    trans[id] = s
+                    count++
+                }
+            }
+        }
+        val lf = File(d, "limits.csv")
+        if (lf.exists()) {
+            for (r in Csv.parse(lf.readText())) {
+                val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
+                val v = r.getOrNull(1)?.trim()?.toIntOrNull() ?: continue
+                if (id in limits.indices && v > 0) limits[id] = v
+            }
+        }
+        val df = File(d, "drafts.csv")
+        if (df.exists()) {
+            for (line in df.readLines()) {
+                val id = line.trim().toIntOrNull() ?: continue
+                if (id in drafts.indices) drafts[id] = true
+            }
+        }
+        val ff = File(d, "flags.csv")
+        if (ff.exists()) {
+            for (line in ff.readLines()) {
+                val id = line.trim().toIntOrNull() ?: continue
+                if (id in flags.indices) flags[id] = true
+            }
+        }
+        return count
+    }
+
+    private fun loadGamePrefs(ctx: Context) {
+        val p = prefs(ctx)
+        gameDir = p.getString("gdir_$projectId", null)
+        gameName = p.getString("gname_$projectId", "") ?: ""
+    }
+
+    /**
+     * Abre um .ain como projeto (o nome do arquivo vira o nome do projeto).
+     * Se esse projeto já existia com o mesmo número de falas, as traduções são retomadas.
+     * Devolve quantas traduções foram retomadas.
+     */
+    fun load(ctx: Context, data: ByteArray, name: String): Int {
+        val f = AinFile.parse(data)
+        apply(f)
+        projectId = sanitize(name)
+        val d = dirOf(ctx, projectId)
+        d.mkdirs()
+        File(d, "current.ain").writeBytes(data)
+        val resumed = readSidecars(ctx)
+        loadGamePrefs(ctx)
+        persist(ctx)
+        savePrefs(ctx)
+        return resumed
+    }
+
+    /** Recupera o projeto atual (ou o primeiro que existir) caso o app tenha sido fechado pelo sistema. */
     fun restore(ctx: Context): Boolean {
         if (ain != null) return true
-        val f = File(ctx.filesDir, "current.ain")
-        if (!f.exists()) return false
+        migrateLegacy(ctx)
+        if (projectId.isEmpty()) projectId = prefs(ctx).getString("project", "") ?: ""
+        var d = dirOf(ctx, projectId)
+        if (projectId.isEmpty() || !File(d, "current.ain").exists()) {
+            val l = listProjects(ctx)
+            if (l.isEmpty()) return false
+            projectId = l[0]
+            d = dirOf(ctx, projectId)
+        }
         return try {
-            apply(AinFile.parse(f.readBytes()))
-            val t = File(ctx.filesDir, "trans.csv")
-            if (t.exists()) {
-                for (r in Csv.parse(t.readText())) {
-                    val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
-                    val s = r.getOrNull(1) ?: continue
-                    if (id in trans.indices && s.isNotEmpty()) trans[id] = s
-                }
-            }
-            val lf = File(ctx.filesDir, "limits.csv")
-            if (lf.exists()) {
-                for (r in Csv.parse(lf.readText())) {
-                    val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
-                    val v = r.getOrNull(1)?.trim()?.toIntOrNull() ?: continue
-                    if (id in limits.indices && v > 0) limits[id] = v
-                }
-            }
-            val df = File(ctx.filesDir, "drafts.csv")
-            if (df.exists()) {
-                for (line in df.readLines()) {
-                    val id = line.trim().toIntOrNull() ?: continue
-                    if (id in drafts.indices) drafts[id] = true
-                }
-            }
+            apply(AinFile.parse(File(d, "current.ain").readBytes()))
+            readSidecars(ctx)
+            loadGamePrefs(ctx)
             true
         } catch (e: Throwable) {
             false
         }
     }
 
+    fun switchProject(ctx: Context, id: String): Boolean {
+        ain = null
+        projectId = id
+        val ok = restore(ctx)
+        if (ok) savePrefs(ctx)
+        return ok
+    }
+
+    fun deleteProject(ctx: Context, id: String) {
+        dirOf(ctx, id).deleteRecursively()
+        if (id == projectId) {
+            ain = null
+            originals = emptyArray()
+            trans = arrayOfNulls(0)
+            limits = IntArray(0)
+            drafts = BooleanArray(0)
+            flags = BooleanArray(0)
+            unitsCache = null
+            projectId = ""
+            prefs(ctx).edit().remove("project").apply()
+        }
+    }
+
     @Synchronized
     fun persist(ctx: Context) {
+        if (projectId.isEmpty() || ain == null) return
+        val d = dirOf(ctx, projectId)
+        d.mkdirs()
         val sb = StringBuilder("ID,Traducao\n")
         for (i in trans.indices) {
             val t = trans[i]
             if (t != null) sb.append(i).append(',').append(Csv.escape(t)).append('\n')
         }
-        File(ctx.filesDir, "trans.csv").writeText(sb.toString())
+        File(d, "trans.csv").writeText(sb.toString())
         val lb = StringBuilder("ID,Limite\n")
         for (i in limits.indices) {
             if (limits[i] > 0) lb.append(i).append(',').append(limits[i]).append('\n')
         }
-        File(ctx.filesDir, "limits.csv").writeText(lb.toString())
+        File(d, "limits.csv").writeText(lb.toString())
         val db = StringBuilder()
         for (i in drafts.indices) if (drafts[i] && trans[i] != null) db.append(i).append('\n')
-        File(ctx.filesDir, "drafts.csv").writeText(db.toString())
+        File(d, "drafts.csv").writeText(db.toString())
+        val fb = StringBuilder()
+        for (i in flags.indices) if (flags[i]) fb.append(i).append('\n')
+        File(d, "flags.csv").writeText(fb.toString())
+        File(d, "meta.txt").writeText(originals.size.toString())
     }
 
     fun persistAsync(ctx: Context) {
@@ -108,22 +221,26 @@ object Store {
     // ---------- preferências ----------
 
     fun loadPrefs(ctx: Context) {
-        val p = ctx.getSharedPreferences("ain", Context.MODE_PRIVATE)
+        migrateLegacy(ctx)
+        val p = prefs(ctx)
         globalLimit = p.getInt("limit", 50)
         stripAccents = p.getBoolean("strip", true)
         showEmpty = p.getBoolean("empty", false)
-        gameDir = p.getString("gdir", null)
-        gameName = p.getString("gname", "") ?: ""
+        if (projectId.isEmpty()) projectId = p.getString("project", "") ?: ""
+        loadGamePrefs(ctx)
     }
 
     fun savePrefs(ctx: Context) {
-        ctx.getSharedPreferences("ain", Context.MODE_PRIVATE).edit()
+        val e = prefs(ctx).edit()
             .putInt("limit", globalLimit)
             .putBoolean("strip", stripAccents)
             .putBoolean("empty", showEmpty)
-            .putString("gdir", gameDir)
-            .putString("gname", gameName)
-            .apply()
+        if (projectId.isNotEmpty()) {
+            e.putString("project", projectId)
+                .putString("gdir_$projectId", gameDir)
+                .putString("gname_$projectId", gameName)
+        }
+        e.apply()
     }
 
     // ---------- limites e traduções ----------

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -164,6 +165,10 @@ class LiveActivity : AppCompatActivity() {
         val counter = TextView(this)
         counter.textSize = 13f
         counter.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        val cbFlag = CheckBox(this)
+        cbFlag.text = "⚑"
+        cbFlag.isChecked = Store.flags[i]
+        cbFlag.setOnCheckedChangeListener { _, c -> Store.flags[i] = c }
         val lbl = TextView(this)
         lbl.text = "Limite:"
         lbl.textSize = 12f
@@ -173,6 +178,7 @@ class LiveActivity : AppCompatActivity() {
         if (Store.limits[i] > 0) etLim.setText(Store.limits[i].toString())
         etLim.layoutParams = LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT)
         row.addView(counter)
+        row.addView(cbFlag)
         row.addView(lbl)
         row.addView(etLim)
 

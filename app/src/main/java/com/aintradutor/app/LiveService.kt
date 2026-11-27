@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -36,6 +37,8 @@ class LiveService : Service() {
     private var reader: ImageReader? = null
     private var vdisplay: VirtualDisplay? = null
     private var busy = false
+    private var capW = 0
+    private var capH = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -115,6 +118,8 @@ class LiveService : Service() {
         wm.defaultDisplay.getRealMetrics(dm)
         val r = ImageReader.newInstance(dm.widthPixels, dm.heightPixels, PixelFormat.RGBA_8888, 2)
         reader = r
+        capW = dm.widthPixels
+        capH = dm.heightPixels
         vdisplay = p.createVirtualDisplay(
             "live", dm.widthPixels, dm.heightPixels, dm.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, handler
@@ -186,15 +191,51 @@ class LiveService : Service() {
         button = v
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        handler.postDelayed({ adaptToRotation() }, 300)
+    }
+
+    /** Se a tela girou (vertical ↔ horizontal), refaz a captura no novo tamanho. Devolve true se mudou. */
+    @Suppress("DEPRECATION")
+    private fun adaptToRotation(): Boolean {
+        val vd = vdisplay ?: return false
+        val dm = DisplayMetrics()
+        wm.defaultDisplay.getRealMetrics(dm)
+        if (dm.widthPixels == capW && dm.heightPixels == capH) return false
+        val old = reader
+        val r = ImageReader.newInstance(dm.widthPixels, dm.heightPixels, PixelFormat.RGBA_8888, 2)
+        vd.resize(dm.widthPixels, dm.heightPixels, dm.densityDpi)
+        vd.surface = r.surface
+        reader = r
+        capW = dm.widthPixels
+        capH = dm.heightPixels
+        try {
+            old?.close()
+        } catch (e: Throwable) {
+        }
+        return true
+    }
+
     private fun capture() {
         if (busy) return
         if (!Paddle.isReady(applicationContext)) {
             toast("Baixe os modelos do OCR primeiro (menu ⋮ do app → OCR: modelos do PaddleOCR)")
             return
         }
+        if (adaptToRotation()) {
+            toast("Ajustando à rotação da tela...")
+            handler.postDelayed({ capture() }, 700)
+            return
+        }
         val img = reader?.acquireLatestImage()
         if (img == null) {
             toast("Ainda sem imagem da tela, toque de novo")
+            return
+        }
+        if (img.width != capW || img.height != capH) {
+            img.close()
+            toast("Ajustando à rotação da tela, toque de novo em instantes")
             return
         }
         busy = true

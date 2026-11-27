@@ -14,6 +14,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -46,6 +47,9 @@ class MainActivity : AppCompatActivity() {
         private const val M_STRIP = 12
         private const val M_EMPTY = 13
         private const val M_OCR = 14
+        private const val M_PROGRESS = 15
+        private const val M_PROJECTS = 16
+        private const val M_INFO = 17
     }
 
     private var shown: List<Int> = emptyList()
@@ -160,7 +164,10 @@ class MainActivity : AppCompatActivity() {
         menu.add(Menu.NONE, M_LIVE, Menu.NONE, "Modo ao vivo (sobre o jogo)")
         menu.add(Menu.NONE, M_OCR, Menu.NONE, "OCR: modelos do PaddleOCR")
         menu.add(Menu.NONE, M_PROBLEMS, Menu.NONE, "Problemas e reajuste")
+        menu.add(Menu.NONE, M_PROGRESS, Menu.NONE, "Progresso do jogo")
         menu.add(Menu.NONE, M_TOOLS, Menu.NONE, "Repetidas, substituir e tradução automática")
+        menu.add(Menu.NONE, M_PROJECTS, Menu.NONE, "Projetos (um por jogo)…")
+        menu.add(Menu.NONE, M_INFO, Menu.NONE, "Informações do .ain")
         menu.add(Menu.NONE, M_LIMIT, Menu.NONE, "Limite de caracteres")
         menu.add(Menu.NONE, M_ONLY, Menu.NONE, "Só não traduzidas").isCheckable = true
         menu.add(Menu.NONE, M_STRIP, Menu.NONE, "Remover acentos e ç ao salvar o .ain").isCheckable = true
@@ -179,7 +186,7 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             M_OPEN -> openAin.launch(arrayOf("*/*"))
-            M_SAVE -> if (need()) saveAin.launch(if (Store.gameName.isNotBlank()) Store.gameName else "Rance01_PT.ain")
+            M_SAVE -> if (need()) saveAin.launch(if (Store.gameName.isNotBlank()) Store.gameName else Store.projectId + "_PT.ain")
             M_SAVE_GAME -> saveToGame()
             M_GAME_SETUP -> if (need()) setupGame()
             M_IMPORT -> if (need()) openCsv.launch(arrayOf("*/*"))
@@ -188,6 +195,9 @@ class MainActivity : AppCompatActivity() {
             M_OCR -> ocrModels()
             M_PROBLEMS -> if (need()) startActivity(Intent(this, ProblemsActivity::class.java))
             M_TOOLS -> if (need()) startActivity(Intent(this, ToolsActivity::class.java))
+            M_PROGRESS -> if (need()) startActivity(Intent(this, ProgressActivity::class.java))
+            M_PROJECTS -> showProjects()
+            M_INFO -> showInfo()
             M_LIMIT -> askLimit()
             M_ONLY -> {
                 onlyUntranslated = !onlyUntranslated
@@ -205,6 +215,59 @@ class MainActivity : AppCompatActivity() {
             else -> return super.onOptionsItemSelected(item)
         }
         return true
+    }
+
+    private fun showInfo() {
+        val f = Store.ain
+        val units = if (f != null) Store.units().size else 0
+        AlertDialog.Builder(this)
+            .setTitle("Informações do .ain")
+            .setMessage(
+                if (f == null) "Nenhum .ain aberto."
+                else "Projeto: ${Store.projectId}\n${f.describe()}\nTrechos (falas contínuas): $units"
+            )
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun showProjects() {
+        val ids = Store.listProjects(applicationContext)
+        if (ids.isEmpty()) {
+            toast("Nenhum projeto ainda. Abra um .ain pelo menu.")
+            return
+        }
+        val labels = ids.map { if (it == Store.projectId) "$it (atual)" else it }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Projetos (um por jogo)")
+            .setItems(labels) { _, which ->
+                val id = ids[which]
+                AlertDialog.Builder(this)
+                    .setTitle(id)
+                    .setPositiveButton("Abrir") { _, _ ->
+                        status.text = "Abrindo..."
+                        Thread {
+                            Store.persist(applicationContext)
+                            Store.switchProject(applicationContext, id)
+                            runOnUiThread { refresh() }
+                        }.start()
+                    }
+                    .setNegativeButton("Apagar") { _, _ ->
+                        AlertDialog.Builder(this)
+                            .setTitle("Apagar \"$id\"?")
+                            .setMessage("Apaga as traduções desse projeto. Não dá para desfazer.")
+                            .setPositiveButton("Apagar") { _, _ ->
+                                Store.deleteProject(applicationContext, id)
+                                refresh()
+                                toast("Projeto apagado")
+                            }
+                            .setNegativeButton("Cancelar", null)
+                            .show()
+                    }
+                    .setNeutralButton("Cancelar", null)
+                    .show()
+            }
+            .setNegativeButton("Fechar", null)
+            .show()
     }
 
     private fun askLimit() {
@@ -308,15 +371,23 @@ class MainActivity : AppCompatActivity() {
         status.text = "Abrindo..."
         Thread {
             try {
-                val data = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-                Store.load(applicationContext, data)
+                var name = ""
                 try {
                     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                        if (c.moveToFirst()) Store.openedName = c.getString(0) ?: ""
+                        if (c.moveToFirst()) name = c.getString(0) ?: ""
                     }
                 } catch (e: Throwable) {
                 }
-                runOnUiThread { refresh() }
+                val data = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                val resumed = Store.load(applicationContext, data, name)
+                Store.openedName = name
+                runOnUiThread {
+                    refresh()
+                    toast(
+                        if (resumed > 0) "Projeto \"${Store.projectId}\" retomado: $resumed falas já traduzidas"
+                        else "Projeto \"${Store.projectId}\" aberto. ${Store.ain?.describe() ?: ""}"
+                    )
+                }
             } catch (e: Throwable) {
                 runOnUiThread {
                     status.text = "Erro ao abrir"
@@ -383,7 +454,7 @@ class MainActivity : AppCompatActivity() {
         et.setText(
             if (Store.gameName.isNotBlank()) Store.gameName
             else if (Store.openedName.isNotBlank()) Store.openedName
-            else "Rance01.ain"
+            else "jogo.ain"
         )
         et.setSelection(et.text.length)
         val box = LinearLayout(this)
@@ -523,7 +594,7 @@ class MainActivity : AppCompatActivity() {
         status.text = if (Store.ain == null) {
             "Abra um arquivo .ain (menu ⋮ → Abrir .ain)"
         } else {
-            "${shown.size} exibidas • $done traduzidas de ${originals.size}"
+            "[${Store.projectId}] ${shown.size} exibidas • $done traduzidas de ${originals.size}"
         }
     }
 
@@ -560,6 +631,11 @@ class MainActivity : AppCompatActivity() {
         row.addView(etLim)
         box.addView(row)
 
+        val cbFlag = CheckBox(this)
+        cbFlag.text = "Marcar para revisar"
+        cbFlag.isChecked = Store.flags.getOrElse(i) { false }
+        box.addView(cbFlag)
+
         fun updateCounter() {
             val lim = etLim.text.toString().trim().toIntOrNull() ?: Store.globalLimit
             val n = et.text.length
@@ -576,6 +652,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Salvar") { _, _ ->
                 Store.setLimit(i, etLim.text.toString().trim().toIntOrNull() ?: 0)
                 Store.setTrans(i, et.text.toString())
+                if (i in Store.flags.indices) Store.flags[i] = cbFlag.isChecked
                 Store.persistAsync(applicationContext)
                 refresh()
             }
@@ -615,7 +692,7 @@ class MainActivity : AppCompatActivity() {
             val i = shown[position]
             val t = Store.trans[i]
             val lim = Store.limitOf(i)
-            holder.a.text = "#$i  ${Store.originals[i]}"
+            holder.a.text = (if (Store.flags[i]) "⚑ " else "") + "#$i  ${Store.originals[i]}"
             if (t == null) {
                 holder.b.text = "(toque para traduzir)"
                 holder.b.setTextColor(0xFF999999.toInt())
@@ -628,6 +705,13 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             holder.itemView.setOnClickListener { edit(i) }
+            holder.itemView.setOnLongClickListener {
+                Store.flags[i] = !Store.flags[i]
+                Store.persistAsync(applicationContext)
+                notifyItemChanged(position)
+                toast(if (Store.flags[i]) "Marcada para revisar" else "Marca removida")
+                true
+            }
         }
     }
 }

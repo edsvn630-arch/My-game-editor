@@ -9,15 +9,22 @@ import java.util.zip.Deflater
 import java.util.zip.Inflater
 
 /**
- * Arquivo .ain da AliceSoft (System 4, container AI2 com zlib).
- * Só mexe na seção MSG0 (as falas); o resto do arquivo é copiado igual.
+ * Arquivo .ain da AliceSoft (System 4). Aceita o formato comprimido (cabeçalho AI2, zlib)
+ * e o sem compressão (começa com VERS). Só mexe na seção MSG0 (as falas); o resto do
+ * arquivo é copiado igual.
  */
 class AinFile private constructor(
     private val raw: ByteArray,
     private val msgStart: Int,
     private val msgEnd: Int,
-    val originals: List<ByteArray>
+    val originals: List<ByteArray>,
+    val compressed: Boolean,
+    val version: Int
 ) {
+
+    fun describe(): String =
+        "AIN versão $version • " + (if (compressed) "comprimido (AI2)" else "sem compressão") +
+            " • ${originals.size} entradas de fala (seção MSG0)"
 
     /** Monta um .ain novo. translations[i] == null/vazio mantém a fala original. */
     fun build(translations: Array<String?>, strip: Boolean = true): ByteArray {
@@ -30,6 +37,7 @@ class AinFile private constructor(
         }
         out.write(raw, msgEnd, raw.size - msgEnd)
         val body = out.toByteArray()
+        if (!compressed) return body
 
         val def = Deflater(9)
         def.setInput(body)
@@ -56,27 +64,35 @@ class AinFile private constructor(
         private val NEXT = listOf("MAIN", "MSG1", "MSGF", "HLL0", "SWI0")
 
         fun parse(data: ByteArray): AinFile {
-            require(
-                data.size > 16 &&
-                    data[0] == 0x41.toByte() &&
-                    data[1] == 0x49.toByte() &&
-                    data[2] == 0x32.toByte()
-            ) { "Não é um arquivo .ain (cabeçalho AI2)" }
-
-            val usize = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).getInt(8)
-            val raw = ByteArray(usize)
-            val inf = Inflater()
-            inf.setInput(data, 16, data.size - 16)
-            var off = 0
-            while (off < usize) {
-                val n = inf.inflate(raw, off, usize - off)
-                if (n == 0 && (inf.finished() || inf.needsInput())) break
-                off += n
+            val raw: ByteArray
+            val compressed: Boolean
+            val head = if (data.size >= 4) String(data, 0, 4, Charsets.ISO_8859_1) else ""
+            if (data.size > 16 && data[0] == 0x41.toByte() && data[1] == 0x49.toByte() && data[2] == 0x32.toByte()) {
+                val usize = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).getInt(8)
+                val buf = ByteArray(usize)
+                val inf = Inflater()
+                inf.setInput(data, 16, data.size - 16)
+                var off = 0
+                while (off < usize) {
+                    val n = inf.inflate(buf, off, usize - off)
+                    if (n == 0 && (inf.finished() || inf.needsInput())) break
+                    off += n
+                }
+                inf.end()
+                require(off == usize) { "Falha ao descomprimir o .ain" }
+                raw = buf
+                compressed = true
+            } else if (head == "VERS") {
+                raw = data
+                compressed = false
+            } else {
+                val shown = head.filter { it.code in 32..126 }
+                throw IllegalArgumentException("Formato não reconhecido (o arquivo começa com \"$shown\"). O app lê arquivos .ain da AliceSoft.")
             }
-            inf.end()
-            require(off == usize) { "Falha ao descomprimir o .ain" }
 
             val bb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN)
+            val version = if (raw.size >= 8 && String(raw, 0, 4, Charsets.ISO_8859_1) == "VERS") bb.getInt(4) else -1
+
             var p = indexOf(raw, "MSG0", 0)
             while (p >= 0) {
                 if (p + 8 <= raw.size) {
@@ -98,13 +114,19 @@ class AinFile private constructor(
                         if (ok && q + 4 <= raw.size &&
                             NEXT.contains(String(raw, q, 4, Charsets.ISO_8859_1))
                         ) {
-                            return AinFile(raw, p, q, list)
+                            return AinFile(raw, p, q, list, compressed, version)
                         }
                     }
                 }
                 p = indexOf(raw, "MSG0", p + 1)
             }
-            throw IllegalArgumentException("Seção de falas (MSG0) não encontrada")
+            if (indexOf(raw, "MSG1", 0) >= 0) {
+                throw IllegalArgumentException(
+                    "Este .ain (versão $version) parece guardar as falas na seção MSG1, que o app ainda não lê. " +
+                        "Me mande o arquivo para eu adicionar o suporte."
+                )
+            }
+            throw IllegalArgumentException("Não achei a seção de falas (MSG0) neste .ain (versão $version).")
         }
 
         private fun indexOf(a: ByteArray, s: String, from: Int): Int {
