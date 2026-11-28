@@ -105,4 +105,31 @@ object Ui {
         v.foreground = ContextCompat.getDrawable(v.context, tv.resourceId)
         v.isClickable = true
     }
+
+    /** Chip de opção que liga/desliga (marcado = azul-claro com borda). */
+    fun toggleChip(ctx: Context, text: String, checked: Boolean, onClick: () -> Unit): TextView {
+        val t = TextView(ctx)
+        t.text = text
+        t.textSize = 13f
+        t.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        t.setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
+        setToggle(t, checked)
+        t.setOnClickListener { onClick() }
+        return t
+    }
+
+    fun setToggle(t: TextView, checked: Boolean) {
+        val ctx = t.context
+        t.background = ContextCompat.getDrawable(ctx, if (checked) R.drawable.bg_chip_on else R.drawable.bg_chip_off)
+        t.setTextColor(color(ctx, if (checked) R.color.primary else R.color.text2))
+    }
+
+    /** Ícone (vetor) pintado com uma cor do tema. */
+    fun icon(ctx: Context, resId: Int, colorId: Int, sizeDp: Int = 22): android.widget.ImageView {
+        val v = android.widget.ImageView(ctx)
+        v.setImageResource(resId)
+        v.setColorFilter(color(ctx, colorId))
+        v.layoutParams = LinearLayout.LayoutParams(dp(ctx, sizeDp), dp(ctx, sizeDp))
+        return v
+    }
 }

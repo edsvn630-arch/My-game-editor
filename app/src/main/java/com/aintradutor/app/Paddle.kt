@@ -97,7 +97,7 @@ object Paddle {
                 val c = URL(u).openConnection() as HttpURLConnection
                 c.connectTimeout = 15000
                 c.readTimeout = 30000
-                c.setRequestProperty("User-Agent", "AinTradutor")
+                c.setRequestProperty("User-Agent", "AliceEditor")
                 if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
                 val total = c.contentLengthLong
                 val tmp = File(file.path + ".part")

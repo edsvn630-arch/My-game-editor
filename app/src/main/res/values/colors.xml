@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="ic_bg">#2F3E9E</color>
     <color name="bar">#2F3E9E</color>
     <color name="bar_dark">#232F7A</color>
     <color name="primary">#3949AB</color>

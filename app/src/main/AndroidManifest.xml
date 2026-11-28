@@ -9,9 +9,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
-        android:roundIcon="@drawable/ic_launcher"
-        android:label="Ain Tradutor"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Alice Editor"
         android:theme="@style/AppTheme">
 
         <activity
@@ -37,9 +37,19 @@
             android:label="Problemas e reajuste" />
 
         <activity
-            android:name=".ToolsActivity"
+            android:name=".RepeatedActivity"
             android:exported="false"
-            android:label="Repetidas e substituir" />
+            android:label="Falas repetidas" />
+
+        <activity
+            android:name=".ReplaceActivity"
+            android:exported="false"
+            android:label="Localizar e substituir" />
+
+        <activity
+            android:name=".AutoTranslateActivity"
+            android:exported="false"
+            android:label="Tradução automática" />
 
         <activity
             android:name=".ProgressActivity"

@@ -100,7 +100,7 @@ class LiveService : Service() {
         } else {
             b = Notification.Builder(this)
         }
-        val n = b.setContentTitle("Ain Tradutor: modo ao vivo")
+        val n = b.setContentTitle("Alice Editor: modo ao vivo")
             .setContentText("Toque em Parar para desligar o botão flutuante")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Parar", stop)

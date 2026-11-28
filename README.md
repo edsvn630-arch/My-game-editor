@@ -1,25 +1,25 @@
-# Ain Tradutor
+# Alice Editor
 
-Editor de falas dos jogos da AliceSoft (.ain, System 4) para Android.
+Editor de falas dos jogos da AliceSoft (.ain, System 4) para Android. Versão 1.0.0 (primeiro release).
 
-- Abrir .ain, buscar, editar fala por fala, salvar .ain novo
-- Importar/exportar CSV (colunas: ID, Original, Tradução; o ID é o número da fala, começando em 0)
-- Opção para remover acentos e "ç" ao salvar (o jogo não mostra; sem a opção, viram "?")
-- Devolve sozinho aspas, crase e espaço do início/fim da fala se faltarem
-- Problemas e reajuste: lista falas que passam do limite, sem marcador, com caracteres que viram "?" ou incompletas; "Reajustar falas largas" redistribui as palavras nas mesmas linhas do trecho (com desfazer)
-- Repetidas e substituir: preenche trechos idênticos ainda sem tradução e faz localizar/substituir nas traduções (com desfazer)
-- OCR do modo ao vivo com PaddleOCR (PP-OCRv5 mobile, alfabeto latino) via ONNX Runtime; os modelos (~12 MB) são baixados uma vez e depois funciona offline
-- Um projeto por jogo (as traduções de cada .ain ficam separadas e são retomadas ao reabrir o mesmo arquivo); lê .ain comprimido (AI2) e sem compressão
-- Marcar falas para revisar (⚑) e tela de progresso por trecho do jogo
-- Visual novo: tema claro/escuro automático, cartões coloridos por situação (verde traduzida, laranja rascunho, vermelho passou do limite), barra de progresso, tela inicial e botão flutuante "Ao vivo"
-- Menu de três pontinhos com todas as opções
+## Recursos
+
+- Abrir o .ain, buscar, editar fala por fala e salvar o .ain novo (botões de abrir e salvar na barra do topo)
 - Salvar direto na pasta do jogo (escolhe a pasta uma vez; guarda cópia .bak do arquivo original)
-- Tradução automática inglês → português pelo Google Tradutor (online), como rascunho para revisar
-- Barra de rolagem rápida na lateral direita da lista (arraste para ir longe, mostra o número da fala)
-- "Limite": avisa em vermelho quando a fala passa de N caracteres
-- Modo ao vivo: botão flutuante "Aa" sobre o jogo; lê a tela (OCR), acha a fala no .ain e abre a tela de edição na cena certa
+- Opções rápidas acima da busca: limite de caracteres, só não traduzidas, remover acentos e "ç", falas vazias
+- Importar/exportar CSV (colunas: ID, Original, Tradução; o ID é o número da fala, começando em 0)
+- Limite de caracteres geral e por fala; avisa quando a tradução passa do limite
+- Problemas e reajuste: lista o que pode dar erro no jogo e redistribui as palavras nas mesmas linhas do trecho
+- Falas repetidas, localizar e substituir, e tradução automática (Google Tradutor, online), cada uma na sua tela
+- Marcar falas para revisar (⚑), rascunhos automáticos e tela de progresso por trecho do jogo
+- Um projeto por jogo: as traduções de cada .ain ficam separadas
+- Modo ao vivo: botão flutuante sobre o jogo; lê a tela com PaddleOCR (modelos de ~12 MB baixados uma vez, depois funciona offline), acha a fala no .ain e abre a edição na cena certa
+- Tema claro/escuro automático
 
-O APK é gerado pelo GitHub Actions (aba Actions > Build APK > Artifacts).
+## Compilar
+
+O APK é gerado pelo GitHub Actions (aba Actions > Build > Artifacts). O app é assinado com a chave fixa
+`app/alice-release.jks`, então cada versão nova instala por cima da anterior sem perder dados.
 
 ## Créditos
 

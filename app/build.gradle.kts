@@ -8,11 +8,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.aintradutor.app"
+        applicationId = "com.aliceeditor.app"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1"
+        versionName = "1.0.0"
 
         // só celulares de 64 bits (arm64): é o que quase todo celular atual usa
         ndk {
@@ -22,9 +22,27 @@ android {
         resourceConfigurations += listOf("en", "pt")
     }
 
-    // O workflow gera o APK "debug"; aqui ele também é encolhido (R8 + recursos não usados)
+    // Chave fixa: todo build sai com a mesma assinatura, então uma versão nova instala por cima da anterior.
+    signingConfigs {
+        create("release") {
+            storeFile = file("alice-release.jks")
+            storeType = "pkcs12"
+            storePassword = "aliceeditor"
+            keyAlias = "alice"
+            keyPassword = "aliceeditor"
+        }
+    }
+
     buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+        }
+        // o workflow antigo gera o APK "debug": também sai encolhido e com a mesma assinatura
         getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")

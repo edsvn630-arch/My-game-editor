@@ -3,6 +3,8 @@ package com.aintradutor.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -18,17 +20,19 @@ import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.documentfile.provider.DocumentFile
-import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -37,21 +41,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val M_OPEN = 1
         private const val M_SAVE = 2
-        private const val M_SAVE_GAME = 3
-        private const val M_GAME_SETUP = 4
-        private const val M_IMPORT = 5
-        private const val M_EXPORT = 6
-        private const val M_LIVE = 7
-        private const val M_PROBLEMS = 8
-        private const val M_TOOLS = 9
-        private const val M_LIMIT = 10
-        private const val M_ONLY = 11
-        private const val M_STRIP = 12
-        private const val M_EMPTY = 13
-        private const val M_OCR = 14
-        private const val M_PROGRESS = 15
-        private const val M_PROJECTS = 16
-        private const val M_INFO = 17
+        private const val M_MORE = 3
     }
 
     private var shown: List<Int> = emptyList()
@@ -65,6 +55,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fab: TextView
     private lateinit var rv: RecyclerView
     private var bar: FastScrollBar? = null
+
+    private lateinit var chipLimit: TextView
+    private lateinit var chipOnly: TextView
+    private lateinit var chipStrip: TextView
+    private lateinit var chipEmpty: TextView
+
+    private lateinit var scrim: View
+    private lateinit var panel: View
+    private var panelWidth = 0
+    private var panelOpen = false
+
+    private val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            closePanel()
+        }
+    }
 
     private val openAin = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadAin(uri)
@@ -97,28 +103,62 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = Ui.dp(this, v)
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
 
     private fun need(): Boolean {
         if (Store.ain == null) {
-            toast("Abra um .ain primeiro (menu ⋮ → Abrir .ain)")
+            toast("Abra um .ain primeiro (botão de pasta, no topo)")
             return false
         }
         return true
     }
 
+    private fun defaultName() = if (Store.gameName.isNotBlank()) Store.gameName else Store.projectId + "_PT.ain"
+
+    // ======================= criação da tela =======================
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         adapter = Adapter()
         Store.loadPrefs(applicationContext)
+        onBackPressedDispatcher.addCallback(this, backCallback)
 
+        val overlay = FrameLayout(this)
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
 
+        // opções rápidas (acima da busca)
+        chipLimit = Ui.toggleChip(this, "Limite: ${Store.globalLimit}", false) { askLimit() }
+        chipOnly = Ui.toggleChip(this, "Só não traduzidas", onlyUntranslated) {
+            onlyUntranslated = !onlyUntranslated
+            Ui.setToggle(chipOnly, onlyUntranslated)
+            refresh()
+        }
+        chipStrip = Ui.toggleChip(this, "Remover acentos e ç", Store.stripAccents) {
+            Store.stripAccents = !Store.stripAccents
+            Ui.setToggle(chipStrip, Store.stripAccents)
+            Store.savePrefs(applicationContext)
+        }
+        chipEmpty = Ui.toggleChip(this, "Falas vazias", Store.showEmpty) {
+            Store.showEmpty = !Store.showEmpty
+            Ui.setToggle(chipEmpty, Store.showEmpty)
+            Store.savePrefs(applicationContext)
+            refresh()
+        }
+        val chipRow = LinearLayout(this)
+        chipRow.setPadding(dp(12), dp(10), dp(12), 0)
+        for (c in listOf(chipLimit, chipOnly, chipStrip, chipEmpty)) {
+            chipRow.addView(c, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 0, 8, 0))
+        }
+        val chipScroll = HorizontalScrollView(this)
+        chipScroll.isHorizontalScrollBarEnabled = false
+        chipScroll.addView(chipRow)
+        root.addView(chipScroll, Ui.lp(this, Ui.MATCH, Ui.WRAP))
+
         // busca
         etSearch = Ui.input(this, "Buscar no original ou na tradução")
-        root.addView(etSearch, Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 12, 10, 12, 6))
+        root.addView(etSearch, Ui.lp(this, Ui.MATCH, dp(48), 12, 10, 12, 6))
 
         // cabeçalho com o progresso geral
         val head = Ui.card(this)
@@ -129,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         progress.max = 1000
         progress.progressDrawable = ContextCompat.getDrawable(this, R.drawable.progress_bar)
         head.addView(status)
-        head.addView(progress, Ui.lp(this, Ui.MATCH, Ui.dp(this, 6), 0, 8, 0, 0))
+        head.addView(progress, Ui.lp(this, Ui.MATCH, dp(6), 0, 8, 0, 0))
         root.addView(head, Ui.lp(this, Ui.MATCH, Ui.WRAP, 12, 4, 12, 6))
 
         // lista + barra de rolagem rápida + estado vazio + botão flutuante
@@ -150,7 +190,7 @@ class MainActivity : AppCompatActivity() {
         fab = TextView(this)
         fab.text = "▶  Ao vivo"
         fab.textSize = 15f
-        fab.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        fab.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         fab.setTextColor(Ui.color(this, R.color.on_accent))
         fab.background = ContextCompat.getDrawable(this, R.drawable.bg_fab)
         fab.setPadding(dp(20), dp(14), dp(20), dp(14))
@@ -161,8 +201,21 @@ class MainActivity : AppCompatActivity() {
         frame.addView(fab, fabLp)
         root.addView(frame)
 
+        overlay.addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // menu lateral ("Mais opções")
+        panelWidth = (resources.displayMetrics.widthPixels * 0.84f).toInt().coerceAtMost(dp(340))
+        scrim = View(this)
+        scrim.setBackgroundColor(0x99000000.toInt())
+        scrim.visibility = View.GONE
+        scrim.setOnClickListener { closePanel() }
+        overlay.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        panel = buildPanel()
+        panel.visibility = View.GONE
+        overlay.addView(panel, FrameLayout.LayoutParams(panelWidth, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
+
         etSearch.doAfterTextChanged { refresh() }
-        setContentView(root)
+        setContentView(overlay)
 
         // recupera o último projeto, se o app foi fechado
         Thread {
@@ -193,76 +246,158 @@ class MainActivity : AppCompatActivity() {
         refresh() // traduções feitas em outras telas aparecem aqui
     }
 
-    // ---------- menu (três pontinhos) ----------
+    // ======================= barra do topo =======================
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(Menu.NONE, M_OPEN, Menu.NONE, "Abrir .ain")
-        menu.add(Menu.NONE, M_SAVE, Menu.NONE, "Salvar .ain…")
-        menu.add(Menu.NONE, M_SAVE_GAME, Menu.NONE, "Salvar na pasta do jogo")
-        menu.add(Menu.NONE, M_GAME_SETUP, Menu.NONE, "Trocar pasta/nome do jogo…")
-        menu.add(Menu.NONE, M_IMPORT, Menu.NONE, "Importar CSV")
-        menu.add(Menu.NONE, M_EXPORT, Menu.NONE, "Exportar CSV")
-        menu.add(Menu.NONE, M_LIVE, Menu.NONE, "Modo ao vivo (sobre o jogo)")
-        menu.add(Menu.NONE, M_OCR, Menu.NONE, "OCR: modelos do PaddleOCR")
-        menu.add(Menu.NONE, M_PROBLEMS, Menu.NONE, "Problemas e reajuste")
-        menu.add(Menu.NONE, M_PROGRESS, Menu.NONE, "Progresso do jogo")
-        menu.add(Menu.NONE, M_TOOLS, Menu.NONE, "Repetidas, substituir e tradução automática")
-        menu.add(Menu.NONE, M_PROJECTS, Menu.NONE, "Projetos (um por jogo)…")
-        menu.add(Menu.NONE, M_INFO, Menu.NONE, "Informações do .ain")
-        menu.add(Menu.NONE, M_LIMIT, Menu.NONE, "Limite de caracteres")
-        menu.add(Menu.NONE, M_ONLY, Menu.NONE, "Só não traduzidas").isCheckable = true
-        menu.add(Menu.NONE, M_STRIP, Menu.NONE, "Remover acentos e ç ao salvar o .ain").isCheckable = true
-        menu.add(Menu.NONE, M_EMPTY, Menu.NONE, "Mostrar falas vazias").isCheckable = true
+        fun add(id: Int, title: String, icon: Int) {
+            val mi = menu.add(Menu.NONE, id, Menu.NONE, title)
+            val d = ContextCompat.getDrawable(this, icon)?.mutate()
+            d?.setTint(Color.WHITE)
+            mi.icon = d
+            mi.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        }
+        add(M_OPEN, "Abrir .ain", R.drawable.ic_open)
+        add(M_SAVE, "Salvar", R.drawable.ic_save)
+        add(M_MORE, "Mais opções", R.drawable.ic_more)
         return true
-    }
-
-    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        menu.findItem(M_LIMIT)?.title = "Limite de caracteres: ${Store.globalLimit}"
-        menu.findItem(M_ONLY)?.isChecked = onlyUntranslated
-        menu.findItem(M_STRIP)?.isChecked = Store.stripAccents
-        menu.findItem(M_EMPTY)?.isChecked = Store.showEmpty
-        return super.onPrepareOptionsMenu(menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             M_OPEN -> openAin.launch(arrayOf("*/*"))
-            M_SAVE -> if (need()) saveAin.launch(if (Store.gameName.isNotBlank()) Store.gameName else Store.projectId + "_PT.ain")
-            M_SAVE_GAME -> saveToGame()
-            M_GAME_SETUP -> if (need()) setupGame()
-            M_IMPORT -> if (need()) openCsv.launch(arrayOf("*/*"))
-            M_EXPORT -> if (need()) saveCsv.launch("falas.csv")
-            M_LIVE -> startLive()
-            M_OCR -> ocrModels()
-            M_PROBLEMS -> if (need()) startActivity(Intent(this, ProblemsActivity::class.java))
-            M_TOOLS -> if (need()) startActivity(Intent(this, ToolsActivity::class.java))
-            M_PROGRESS -> if (need()) startActivity(Intent(this, ProgressActivity::class.java))
-            M_PROJECTS -> showProjects()
-            M_INFO -> showInfo()
-            M_LIMIT -> askLimit()
-            M_ONLY -> {
-                onlyUntranslated = !onlyUntranslated
-                refresh()
-            }
-            M_STRIP -> {
-                Store.stripAccents = !Store.stripAccents
-                Store.savePrefs(applicationContext)
-            }
-            M_EMPTY -> {
-                Store.showEmpty = !Store.showEmpty
-                Store.savePrefs(applicationContext)
-                refresh()
-            }
+            M_SAVE -> saveQuick()
+            M_MORE -> if (panelOpen) closePanel() else openPanel()
             else -> return super.onOptionsItemSelected(item)
         }
         return true
     }
 
+    /** Salvar rápido: direto na pasta do jogo, se já estiver configurada; senão pergunta onde. */
+    private fun saveQuick() {
+        if (!need()) return
+        if (Store.gameDir != null && Store.gameName.isNotBlank()) saveToGame() else saveAin.launch(defaultName())
+    }
+
+    // ======================= menu lateral =======================
+
+    private fun buildPanel(): View {
+        val p = LinearLayout(this)
+        p.orientation = LinearLayout.VERTICAL
+        p.background = ContextCompat.getDrawable(this, R.drawable.bg_panel)
+        p.elevation = dp(16).toFloat()
+        p.isClickable = true
+
+        val head = LinearLayout(this)
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.setPadding(dp(20), dp(16), dp(12), dp(12))
+        val title = Ui.heading(this, "Mais opções")
+        title.textSize = 20f
+        head.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val close = Ui.icon(this, R.drawable.ic_close, R.color.text2, 24)
+        close.setPadding(dp(8), dp(8), dp(8), dp(8))
+        close.layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        close.setOnClickListener { closePanel() }
+        head.addView(close)
+        p.addView(head)
+        p.addView(divider(0))
+
+        val list = LinearLayout(this)
+        list.orientation = LinearLayout.VERTICAL
+        list.setPadding(0, dp(4), 0, dp(16))
+
+        list.addView(item(R.drawable.ic_open, "Abrir .ain") { openAin.launch(arrayOf("*/*")) })
+        list.addView(item(R.drawable.ic_save, "Salvar .ain…") { if (need()) saveAin.launch(defaultName()) })
+        list.addView(item(R.drawable.ic_folder, "Salvar na pasta do jogo") { saveToGame() })
+        list.addView(item(R.drawable.ic_edit, "Trocar pasta/nome do jogo…") { if (need()) setupGame() })
+        list.addView(item(R.drawable.ic_download, "Importar CSV") { if (need()) openCsv.launch(arrayOf("*/*")) })
+        list.addView(item(R.drawable.ic_upload, "Exportar CSV") { if (need()) saveCsv.launch("falas.csv") })
+        list.addView(divider(16))
+        list.addView(item(R.drawable.ic_play, "Modo ao vivo (sobre o jogo)") { startLive() })
+        list.addView(item(R.drawable.ic_text, "OCR: modelos do PaddleOCR") { ocrModels() })
+        list.addView(item(R.drawable.ic_warning, "Problemas e reajuste") {
+            if (need()) startActivity(Intent(this, ProblemsActivity::class.java))
+        })
+        list.addView(item(R.drawable.ic_chart, "Progresso do jogo") {
+            if (need()) startActivity(Intent(this, ProgressActivity::class.java))
+        })
+        list.addView(item(R.drawable.ic_copy, "Falas repetidas") {
+            if (need()) startActivity(Intent(this, RepeatedActivity::class.java))
+        })
+        list.addView(item(R.drawable.ic_swap, "Localizar e substituir") {
+            if (need()) startActivity(Intent(this, ReplaceActivity::class.java))
+        })
+        list.addView(item(R.drawable.ic_chat, "Tradução automática") {
+            if (need()) startActivity(Intent(this, AutoTranslateActivity::class.java))
+        })
+        list.addView(divider(16))
+        list.addView(item(R.drawable.ic_layers, "Projetos (um por jogo)…") { showProjects() })
+        list.addView(item(R.drawable.ic_info, "Informações do .ain") { showInfo() })
+
+        val sv = ScrollView(this)
+        sv.addView(list)
+        p.addView(sv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        return p
+    }
+
+    private fun item(icon: Int, label: String, action: () -> Unit): View {
+        val row = LinearLayout(this)
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.setPadding(dp(20), 0, dp(16), 0)
+        row.minimumHeight = dp(52)
+        Ui.ripple(row)
+        row.addView(Ui.icon(this, icon, R.color.text2, 24))
+        val t = TextView(this)
+        t.text = label
+        t.textSize = 16f
+        t.setTextColor(Ui.color(this, R.color.text))
+        t.setPadding(dp(20), 0, 0, 0)
+        row.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.setOnClickListener {
+            closePanel()
+            action()
+        }
+        return row
+    }
+
+    private fun divider(margin: Int): View {
+        val v = View(this)
+        v.setBackgroundColor(Ui.color(this, R.color.divider))
+        v.layoutParams = Ui.lp(this, Ui.MATCH, dp(1), margin, 6, margin, 6)
+        return v
+    }
+
+    private fun openPanel() {
+        if (panelOpen) return
+        panelOpen = true
+        backCallback.isEnabled = true
+        scrim.visibility = View.VISIBLE
+        scrim.alpha = 0f
+        scrim.animate().alpha(1f).setDuration(180).start()
+        panel.visibility = View.VISIBLE
+        panel.translationX = panelWidth.toFloat()
+        panel.animate().translationX(0f).setDuration(220).start()
+    }
+
+    private fun closePanel() {
+        if (!panelOpen) return
+        panelOpen = false
+        backCallback.isEnabled = false
+        scrim.animate().alpha(0f).setDuration(160).withEndAction { scrim.visibility = View.GONE }.start()
+        panel.animate().translationX(panelWidth.toFloat()).setDuration(200).withEndAction { panel.visibility = View.GONE }.start()
+    }
+
+    // ======================= informações, projetos, limite =======================
+
     private fun showInfo() {
         val f = Store.ain
         val units = if (f != null) Store.units().size else 0
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: Throwable) {
+            ""
+        }
         AlertDialog.Builder(this)
-            .setTitle("Informações do .ain")
+            .setTitle("Alice Editor $version")
             .setMessage(
                 if (f == null) "Nenhum .ain aberto."
                 else "Projeto: ${Store.projectId}\n${f.describe()}\nTrechos (falas contínuas): $units"
@@ -274,7 +409,7 @@ class MainActivity : AppCompatActivity() {
     private fun showProjects() {
         val ids = Store.listProjects(applicationContext)
         if (ids.isEmpty()) {
-            toast("Nenhum projeto ainda. Abra um .ain pelo menu.")
+            toast("Nenhum projeto ainda. Abra um .ain primeiro.")
             return
         }
         val labels = ids.map { if (it == Store.projectId) "$it (atual)" else it }.toTypedArray()
@@ -326,13 +461,14 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("OK") { _, _ ->
                 Store.globalLimit = et.text.toString().trim().toIntOrNull() ?: 0
                 Store.savePrefs(applicationContext)
+                chipLimit.text = "Limite: ${Store.globalLimit}"
                 adapter.notifyDataSetChanged()
             }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    // ---------- modo ao vivo ----------
+    // ======================= OCR e modo ao vivo =======================
 
     private fun ocrModels() {
         if (Paddle.isReady(this)) {
@@ -388,7 +524,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (!Settings.canDrawOverlays(this)) {
-            toast("Ative \"Aparecer sobre outros apps\" para o Ain Tradutor e escolha Modo ao vivo de novo")
+            toast("Ative \"Aparecer sobre outros apps\" para o Alice Editor e toque em Ao vivo de novo")
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
@@ -406,7 +542,7 @@ class MainActivity : AppCompatActivity() {
         captureLauncher.launch(mpm.createScreenCaptureIntent())
     }
 
-    // ---------- abrir / salvar ----------
+    // ======================= abrir / salvar =======================
 
     private fun loadAin(uri: Uri) {
         status.text = "Abrindo..."
@@ -608,7 +744,7 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // ---------- lista ----------
+    // ======================= lista =======================
 
     private fun refresh() {
         val originals = Store.originals
@@ -631,6 +767,12 @@ class MainActivity : AppCompatActivity() {
         shown = list
         adapter.notifyDataSetChanged()
         bar?.invalidate()
+
+        chipLimit.text = "Limite: ${Store.globalLimit}"
+        Ui.setToggle(chipOnly, onlyUntranslated)
+        Ui.setToggle(chipStrip, Store.stripAccents)
+        Ui.setToggle(chipEmpty, Store.showEmpty)
+
         val done = trans.count { it != null }
         val has = Store.ain != null
         val total = originals.count { it.isNotEmpty() }
@@ -659,7 +801,7 @@ class MainActivity : AppCompatActivity() {
         box.addView(et)
 
         val row = LinearLayout(this)
-        row.gravity = android.view.Gravity.CENTER_VERTICAL
+        row.gravity = Gravity.CENTER_VERTICAL
         val counter = TextView(this)
         counter.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         row.addView(counter)
@@ -684,7 +826,7 @@ class MainActivity : AppCompatActivity() {
             val lim = etLim.text.toString().trim().toIntOrNull() ?: Store.globalLimit
             val n = et.text.length
             counter.text = if (lim > 0) "$n / $lim" else "$n"
-            counter.setTextColor(if (lim > 0 && n > lim) 0xFFD32F2F.toInt() else 0xFF777777.toInt())
+            counter.setTextColor(Ui.color(this, if (lim > 0 && n > lim) R.color.bad else R.color.text2))
         }
         et.doAfterTextChanged { updateCounter() }
         etLim.doAfterTextChanged { updateCounter() }
