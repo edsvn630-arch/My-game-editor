@@ -7,10 +7,10 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * Tradução automática inglês → português pelo Google Tradutor (precisa de internet).
- * Traduz o trecho inteiro (a fala completa, não linha por linha) e distribui o resultado
- * nas linhas do trecho. O resultado fica marcado como "rascunho" até você revisar.
- * Todas as funções são bloqueantes: chame fora da thread principal.
+ * Tradução automática pelo Google Tradutor (precisa de internet), entre quaisquer dois idiomas
+ * escolhidos (Store.srcLang → Store.tgtLang). Traduz o trecho inteiro (a fala completa, não linha
+ * por linha) e distribui o resultado nas linhas do trecho. O resultado fica marcado como
+ * "rascunho" até você revisar. Todas as funções são bloqueantes: chame fora da thread principal.
  *
  * Usa o endereço público do Google Tradutor (sem chave). Ele não é uma API oficial:
  * se pedir muita coisa de uma vez o Google pode limitar por um tempo.
@@ -38,7 +38,10 @@ object Auto {
 
     private fun request(text: String): String {
         val q = URLEncoder.encode(text, "UTF-8")
-        val url = URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt&dt=t&q=$q")
+        val url = URL(
+            "https://translate.googleapis.com/translate_a/single?client=gtx" +
+                "&sl=${Store.srcLang}&tl=${Store.tgtLang}&dt=t&q=$q"
+        )
         var last: Exception? = null
         for (attempt in 0 until 3) {
             try {
@@ -79,6 +82,15 @@ object Auto {
         return parts.joinToString(" ") { request(it) }
     }
 
+    /** Traduz um texto avulso (por exemplo, um texto do sistema). */
+    fun translate(text: String): String = translateText(text)
+
+    private fun plain(s: String): String {
+        var t = s
+        if (t.isNotEmpty() && (t[0] == ' ' || t[0] == '`')) t = t.substring(1)
+        return t.trim()
+    }
+
     private fun sourceText(unit: IntArray, orig: Array<String>): String {
         val sb = StringBuilder()
         for (j in unit.indices) {
@@ -103,6 +115,19 @@ object Auto {
         return r
     }
 
+    /** Sugestão para UMA fala: traduz o trecho inteiro (melhor contexto) e devolve só a linha desta fala. */
+    fun suggestLine(i: Int): String {
+        val orig = Store.originals
+        val u = Store.unitOf(i) ?: return translateText(plain(orig[i]))
+        val src = sourceText(u, orig)
+        if (src.isBlank()) return ""
+        val out = clean(translateText(src), u, orig)
+        val r = Wrap.distribute(u, orig, out, { Store.limitOf(it) }, true, Langs.spaceless(Store.tgtLang))
+        val lines = r.lines ?: return out
+        val k = u.indexOf(i)
+        return if (k in lines.indices) lines[k] else out
+    }
+
     /** Traduz um trecho e coloca o resultado (como rascunho) nas linhas dele. Devolve true se aplicou. */
     fun translateUnit(unit: IntArray): Boolean {
         val orig = Store.originals
@@ -110,7 +135,7 @@ object Auto {
         if (src.isBlank()) return false
         val out = clean(translateText(src), unit, orig)
         Thread.sleep(120) // evita pedir rápido demais ao Google
-        val r = Wrap.distribute(unit, orig, out, { Store.limitOf(it) }, true)
+        val r = Wrap.distribute(unit, orig, out, { Store.limitOf(it) }, true, Langs.spaceless(Store.tgtLang))
         val lines = r.lines ?: return false
         for (j in unit.indices) {
             Store.trans[unit[j]] = lines[j]

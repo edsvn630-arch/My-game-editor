@@ -11,6 +11,8 @@ object Store {
     var limits: IntArray = IntArray(0) // limite individual por fala (0 = usa o limite geral)
     var drafts: BooleanArray = BooleanArray(0) // true = tradução automática ainda não revisada
     var flags: BooleanArray = BooleanArray(0) // true = marcada por você para revisar
+    var sOriginals: Array<String> = emptyArray() // textos do sistema (STR0)
+    var sTrans: Array<String?> = arrayOfNulls(0)
     var globalLimit: Int = 50
     var undo: Array<String?>? = null // cópia das traduções antes da última ação em lote
     var showEmpty: Boolean = false // mostrar na lista as falas vazias do .ain
@@ -19,6 +21,8 @@ object Store {
     var gameName: String = "" // nome do arquivo .ain dentro da pasta do jogo
     var openedName: String = "" // nome do .ain que foi aberto
     var projectId: String = "" // projeto (jogo) atual
+    var srcLang: String = "en" // idioma de origem da tradução automática
+    var tgtLang: String = "pt" // idioma de destino
 
     private var keys: Array<String> = emptyArray()
     private var unitsCache: List<IntArray>? = null
@@ -33,6 +37,8 @@ object Store {
         limits = IntArray(originals.size)
         drafts = BooleanArray(originals.size)
         flags = BooleanArray(originals.size)
+        sOriginals = Array(f.strOriginals.size) { String(f.strOriginals[it], AinFile.CP932) }
+        sTrans = arrayOfNulls(sOriginals.size)
         undo = null
         unitsCache = null
     }
@@ -110,6 +116,14 @@ object Store {
                 if (id in flags.indices) flags[id] = true
             }
         }
+        val sf = File(d, "sys_trans.csv")
+        if (sf.exists()) {
+            for (r in Csv.parse(sf.readText())) {
+                val id = r.getOrNull(0)?.trim()?.toIntOrNull() ?: continue
+                val s = r.getOrNull(1) ?: continue
+                if (id in sTrans.indices && s.isNotEmpty()) sTrans[id] = s
+            }
+        }
         return count
     }
 
@@ -177,6 +191,8 @@ object Store {
             limits = IntArray(0)
             drafts = BooleanArray(0)
             flags = BooleanArray(0)
+            sOriginals = emptyArray()
+            sTrans = arrayOfNulls(0)
             unitsCache = null
             projectId = ""
             prefs(ctx).edit().remove("project").apply()
@@ -205,6 +221,12 @@ object Store {
         val fb = StringBuilder()
         for (i in flags.indices) if (flags[i]) fb.append(i).append('\n')
         File(d, "flags.csv").writeText(fb.toString())
+        val sb2 = StringBuilder("ID,Traducao\n")
+        for (i in sTrans.indices) {
+            val t = sTrans[i]
+            if (t != null) sb2.append(i).append(',').append(Csv.escape(t)).append('\n')
+        }
+        File(d, "sys_trans.csv").writeText(sb2.toString())
         File(d, "meta.txt").writeText(originals.size.toString())
     }
 
@@ -226,6 +248,8 @@ object Store {
         globalLimit = p.getInt("limit", 50)
         stripAccents = p.getBoolean("strip", true)
         showEmpty = p.getBoolean("empty", false)
+        srcLang = p.getString("src", "en") ?: "en"
+        tgtLang = p.getString("tgt", "pt") ?: "pt"
         if (projectId.isEmpty()) projectId = p.getString("project", "") ?: ""
         loadGamePrefs(ctx)
     }
@@ -235,6 +259,8 @@ object Store {
             .putInt("limit", globalLimit)
             .putBoolean("strip", stripAccents)
             .putBoolean("empty", showEmpty)
+            .putString("src", srcLang)
+            .putString("tgt", tgtLang)
         if (projectId.isNotEmpty()) {
             e.putString("project", projectId)
                 .putString("gdir_$projectId", gameDir)
@@ -263,6 +289,12 @@ object Store {
         if (i !in trans.indices) return
         trans[i] = null
         drafts[i] = false
+    }
+
+    /** Tradução de um texto do sistema (sem regras de aspas/crase). */
+    fun setSys(i: Int, text: String) {
+        if (i !in sTrans.indices) return
+        sTrans[i] = if (text.isBlank() || text == sOriginals[i]) null else text
     }
 
     fun fixMarkers(o: String, t: String): String {

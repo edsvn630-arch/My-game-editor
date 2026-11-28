@@ -71,10 +71,16 @@ object Wrap {
      * Divide um texto nas linhas do trecho, minimizando a linha mais cheia (tamanho / limite).
      * Com force = true devolve o melhor resultado mesmo que alguma linha passe do limite.
      */
-    fun distribute(unit: IntArray, orig: Array<String>, text: String, capOf: (Int) -> Int, force: Boolean): Result {
+    fun distribute(unit: IntArray, orig: Array<String>, text: String, capOf: (Int) -> Int, force: Boolean, spaceless: Boolean = false): Result {
         val k = unit.size
         val prefs = prefsOf(unit, orig)
-        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = if (spaceless) {
+            text.filter { !it.isWhitespace() }.map { it.toString() }
+        } else {
+            text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        }
+        val sepLen = if (spaceless) 0 else 1
+        val sep = if (spaceless) "" else " "
         val n = words.size
         if (n < k) return Result(null, "pouco texto")
 
@@ -84,7 +90,7 @@ object Wrap {
         }
         val pre = IntArray(n + 1)
         for (i in 0 until n) pre[i + 1] = pre[i] + words[i].length
-        fun len(a: Int, e: Int) = pre[e] - pre[a] + (e - a - 1)
+        fun len(a: Int, e: Int) = pre[e] - pre[a] + (e - a - 1) * sepLen
 
         val inf = Double.MAX_VALUE
         val dp = Array(k) { DoubleArray(n + 1) { inf } }
@@ -106,7 +112,7 @@ object Wrap {
         val best = dp[k - 1][n]
         if (best == inf) return Result(null, "pouco texto")
         if (best > 1.0 && !force) {
-            val total = len(0, n) - (k - 1)
+            val total = len(0, n) - (k - 1) * sepLen
             return Result(null, "não cabe (texto $total / cabem ${caps.sum()})")
         }
         val cuts = IntArray(k + 1)
@@ -120,7 +126,7 @@ object Wrap {
         cuts[0] = 0
         val lines = ArrayList<String>()
         for (j in 0 until k) {
-            lines.add(prefs[j] + words.subList(cuts[j], cuts[j + 1]).joinToString(" "))
+            lines.add(prefs[j] + words.subList(cuts[j], cuts[j + 1]).joinToString(sep))
         }
         return Result(lines, "")
     }

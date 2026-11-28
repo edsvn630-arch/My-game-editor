@@ -47,6 +47,11 @@
             android:label="Localizar e substituir" />
 
         <activity
+            android:name=".SysTextActivity"
+            android:exported="false"
+            android:label="Textos do sistema" />
+
+        <activity
             android:name=".AutoTranslateActivity"
             android:exported="false"
             android:label="Tradução automática" />

@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chipOnly: TextView
     private lateinit var chipStrip: TextView
     private lateinit var chipEmpty: TextView
+    private lateinit var chipScroll: HorizontalScrollView
 
     private lateinit var scrim: View
     private lateinit var panel: View
@@ -151,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         for (c in listOf(chipLimit, chipOnly, chipStrip, chipEmpty)) {
             chipRow.addView(c, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 0, 8, 0))
         }
-        val chipScroll = HorizontalScrollView(this)
+        chipScroll = HorizontalScrollView(this)
         chipScroll.isHorizontalScrollBarEnabled = false
         chipScroll.addView(chipRow)
         root.addView(chipScroll, Ui.lp(this, Ui.MATCH, Ui.WRAP))
@@ -328,6 +329,9 @@ class MainActivity : AppCompatActivity() {
         })
         list.addView(item(R.drawable.ic_chat, "Tradução automática") {
             if (need()) startActivity(Intent(this, AutoTranslateActivity::class.java))
+        })
+        list.addView(item(R.drawable.ic_list, "Textos do sistema (todo o .ain)") {
+            if (need()) startActivity(Intent(this, SysTextActivity::class.java))
         })
         list.addView(divider(16))
         list.addView(item(R.drawable.ic_layers, "Projetos (um por jogo)…") { showProjects() })
@@ -578,10 +582,11 @@ class MainActivity : AppCompatActivity() {
         val f = Store.ain ?: return
         status.text = "Salvando..."
         val snapshot = Store.trans.copyOf()
+        val sysSnapshot = Store.sTrans.copyOf()
         val strip = Store.stripAccents
         Thread {
             try {
-                val bytes = f.build(snapshot, strip)
+                val bytes = f.build(snapshot, strip, sysSnapshot)
                 contentResolver.openOutputStream(uri, "wt")!!.use { it.write(bytes) }
                 runOnUiThread {
                     refresh()
@@ -658,11 +663,12 @@ class MainActivity : AppCompatActivity() {
         val f = Store.ain ?: return
         status.text = "Salvando na pasta do jogo..."
         val snapshot = Store.trans.copyOf()
+        val sysSnapshot = Store.sTrans.copyOf()
         val strip = Store.stripAccents
         Thread {
             try {
                 val dir = DocumentFile.fromTreeUri(this, treeUri) ?: throw IllegalStateException("pasta inválida")
-                val bytes = f.build(snapshot, strip)
+                val bytes = f.build(snapshot, strip, sysSnapshot)
                 val existing = dir.findFile(name)
                 val target: DocumentFile
                 var backedUp = false
@@ -779,6 +785,7 @@ class MainActivity : AppCompatActivity() {
         empty.visibility = if (has) View.GONE else View.VISIBLE
         rv.visibility = if (has) View.VISIBLE else View.GONE
         fab.visibility = if (has) View.VISIBLE else View.GONE
+        chipScroll.visibility = if (has) View.VISIBLE else View.GONE
         supportActionBar?.subtitle = if (has) Store.projectId else null
         status.text = if (has) "$done de $total traduzidas • ${shown.size} na lista" else "Nenhum jogo aberto"
         progress.progress = if (total == 0) 0 else (done * 1000L / total).toInt()
@@ -799,6 +806,24 @@ class MainActivity : AppCompatActivity() {
         et.setText(Store.trans[i] ?: Store.originals[i])
         et.setSelection(et.text.length)
         box.addView(et)
+
+        box.addView(
+            Ui.button(this, "Traduzir (auto)", false) {
+                toast("Traduzindo...")
+                Thread {
+                    try {
+                        val s = Auto.suggestLine(i)
+                        runOnUiThread {
+                            et.setText(s)
+                            et.setSelection(et.text.length)
+                        }
+                    } catch (e: Throwable) {
+                        runOnUiThread { toast("Erro: ${e.message}. Confira a internet.") }
+                    }
+                }.start()
+            },
+            Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8, 0, 4)
+        )
 
         val row = LinearLayout(this)
         row.gravity = Gravity.CENTER_VERTICAL

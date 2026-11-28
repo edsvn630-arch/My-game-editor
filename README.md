@@ -11,6 +11,8 @@ Editor de falas dos jogos da AliceSoft (.ain, System 4) para Android. Versão 1.
 - Limite de caracteres geral e por fala; avisa quando a tradução passa do limite
 - Problemas e reajuste: lista o que pode dar erro no jogo e redistribui as palavras nas mesmas linhas do trecho
 - Falas repetidas, localizar e substituir, e tradução automática (Google Tradutor, online), cada uma na sua tela
+- Textos do sistema: vê e edita todos os textos do .ain (menus, escolhas, mensagens), não só as falas de diálogo
+- Tradução automática entre qualquer par de idiomas do Google Tradutor, também na janela de edição de cada fala
 - Marcar falas para revisar (⚑), rascunhos automáticos e tela de progresso por trecho do jogo
 - Um projeto por jogo: as traduções de cada .ain ficam separadas
 - Modo ao vivo: botão flutuante sobre o jogo; lê a tela com PaddleOCR (modelos de ~12 MB baixados uma vez, depois funciona offline), acha a fala no .ain e abre a edição na cena certa

@@ -10,32 +10,56 @@ import java.util.zip.Inflater
 
 /**
  * Arquivo .ain da AliceSoft (System 4). Aceita o formato comprimido (cabeçalho AI2, zlib)
- * e o sem compressão (começa com VERS). Só mexe na seção MSG0 (as falas); o resto do
- * arquivo é copiado igual.
+ * e o sem compressão (começa com VERS). Mexe só em duas tabelas de texto:
+ *  - MSG0: as falas do diálogo;
+ *  - STR0: textos do sistema (menus, escolhas, mensagens e também códigos internos).
+ * O resto do arquivo é copiado igual.
  */
 class AinFile private constructor(
     private val raw: ByteArray,
     private val msgStart: Int,
     private val msgEnd: Int,
     val originals: List<ByteArray>,
+    private val strStart: Int,
+    private val strEnd: Int,
+    val strOriginals: List<ByteArray>,
     val compressed: Boolean,
     val version: Int
 ) {
 
     fun describe(): String =
         "AIN versão $version • " + (if (compressed) "comprimido (AI2)" else "sem compressão") +
-            " • ${originals.size} entradas de fala (seção MSG0)"
+            " • ${originals.size} entradas de fala (MSG0)" +
+            (if (strStart >= 0) " • ${strOriginals.size} textos do sistema (STR0)" else "")
 
-    /** Monta um .ain novo. translations[i] == null/vazio mantém a fala original. */
-    fun build(translations: Array<String?>, strip: Boolean = true): ByteArray {
-        val out = ByteArrayOutputStream(raw.size + 1_000_000)
-        out.write(raw, 0, msgStart + 8)
-        for (i in originals.indices) {
-            val t = translations[i]
-            out.write(if (t.isNullOrEmpty()) originals[i] else encode(t, strip))
+    private fun section(orig: List<ByteArray>, tr: Array<String?>?, strip: Boolean): ByteArray {
+        val out = ByteArrayOutputStream()
+        for (i in orig.indices) {
+            val t = tr?.getOrNull(i)
+            out.write(if (t.isNullOrEmpty()) orig[i] else encode(t, strip))
             out.write(0)
         }
-        out.write(raw, msgEnd, raw.size - msgEnd)
+        return out.toByteArray()
+    }
+
+    /**
+     * Monta um .ain novo. translations[i] == null/vazio mantém a fala original.
+     * sys = traduções dos textos do sistema (STR0), se houver.
+     */
+    fun build(translations: Array<String?>, strip: Boolean = true, sys: Array<String?>? = null): ByteArray {
+        val parts = ArrayList<Triple<Int, Int, ByteArray>>()
+        parts.add(Triple(msgStart + 8, msgEnd, section(originals, translations, strip)))
+        if (strStart >= 0) parts.add(Triple(strStart + 8, strEnd, section(strOriginals, sys, strip)))
+        parts.sortBy { it.first }
+
+        val out = ByteArrayOutputStream(raw.size + 1_000_000)
+        var pos = 0
+        for ((s, e, b) in parts) {
+            out.write(raw, pos, s - pos)
+            out.write(b)
+            pos = e
+        }
+        out.write(raw, pos, raw.size - pos)
         val body = out.toByteArray()
         if (!compressed) return body
 
@@ -62,6 +86,46 @@ class AinFile private constructor(
     companion object {
         val CP932: Charset = Charset.forName("windows-31j")
         private val NEXT = listOf("MAIN", "MSG1", "MSGF", "HLL0", "SWI0")
+
+        private class Sec(val tagPos: Int, val end: Int, val list: List<ByteArray>)
+
+        private fun looksLikeTag(raw: ByteArray, q: Int): Boolean {
+            if (q + 4 > raw.size) return false
+            for (k in 0 until 4) {
+                val c = raw[q + k].toInt()
+                if (!((c in 'A'.code..'Z'.code) || (c in '0'.code..'9'.code))) return false
+            }
+            return true
+        }
+
+        /** Procura uma tabela de textos (tag + quantidade + textos terminados em zero) e confere o fim dela. */
+        private fun readSection(raw: ByteArray, tag: String, accept: (ByteArray, Int) -> Boolean): Sec? {
+            val bb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN)
+            var p = indexOf(raw, tag, 0)
+            while (p >= 0) {
+                if (p + 8 <= raw.size) {
+                    val n = bb.getInt(p + 4)
+                    if (n in 1..2_000_000) {
+                        val list = ArrayList<ByteArray>(n)
+                        var q = p + 8
+                        var ok = true
+                        for (k in 0 until n) {
+                            var e = q
+                            while (e < raw.size && raw[e] != 0.toByte()) e++
+                            if (e >= raw.size) {
+                                ok = false
+                                break
+                            }
+                            list.add(raw.copyOfRange(q, e))
+                            q = e + 1
+                        }
+                        if (ok && accept(raw, q)) return Sec(p, q, list)
+                    }
+                }
+                p = indexOf(raw, tag, p + 1)
+            }
+            return null
+        }
 
         fun parse(data: ByteArray): AinFile {
             val raw: ByteArray
@@ -90,43 +154,32 @@ class AinFile private constructor(
                 throw IllegalArgumentException("Formato não reconhecido (o arquivo começa com \"$shown\"). O app lê arquivos .ain da AliceSoft.")
             }
 
-            val bb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN)
-            val version = if (raw.size >= 8 && String(raw, 0, 4, Charsets.ISO_8859_1) == "VERS") bb.getInt(4) else -1
+            val version = if (raw.size >= 8 && String(raw, 0, 4, Charsets.ISO_8859_1) == "VERS") {
+                ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).getInt(4)
+            } else {
+                -1
+            }
 
-            var p = indexOf(raw, "MSG0", 0)
-            while (p >= 0) {
-                if (p + 8 <= raw.size) {
-                    val n = bb.getInt(p + 4)
-                    if (n in 1..2_000_000) {
-                        val list = ArrayList<ByteArray>(n)
-                        var q = p + 8
-                        var ok = true
-                        for (k in 0 until n) {
-                            var e = q
-                            while (e < raw.size && raw[e] != 0.toByte()) e++
-                            if (e >= raw.size) {
-                                ok = false
-                                break
-                            }
-                            list.add(raw.copyOfRange(q, e))
-                            q = e + 1
-                        }
-                        if (ok && q + 4 <= raw.size &&
-                            NEXT.contains(String(raw, q, 4, Charsets.ISO_8859_1))
-                        ) {
-                            return AinFile(raw, p, q, list, compressed, version)
-                        }
-                    }
+            val msg = readSection(raw, "MSG0") { r, q ->
+                q + 4 <= r.size && NEXT.contains(String(r, q, 4, Charsets.ISO_8859_1))
+            }
+            if (msg == null) {
+                if (indexOf(raw, "MSG1", 0) >= 0) {
+                    throw IllegalArgumentException(
+                        "Este .ain (versão $version) parece guardar as falas na seção MSG1, que o app ainda não lê. " +
+                            "Me mande o arquivo para eu adicionar o suporte."
+                    )
                 }
-                p = indexOf(raw, "MSG0", p + 1)
+                throw IllegalArgumentException("Não achei a seção de falas (MSG0) neste .ain (versão $version).")
             }
-            if (indexOf(raw, "MSG1", 0) >= 0) {
-                throw IllegalArgumentException(
-                    "Este .ain (versão $version) parece guardar as falas na seção MSG1, que o app ainda não lê. " +
-                        "Me mande o arquivo para eu adicionar o suporte."
-                )
+            // textos do sistema (opcional)
+            val str = readSection(raw, "STR0") { r, q -> q == r.size || looksLikeTag(r, q) }
+            val usable = str != null && (str.tagPos + 8 >= msg.end || str.end <= msg.tagPos)
+            return if (str != null && usable) {
+                AinFile(raw, msg.tagPos, msg.end, msg.list, str.tagPos, str.end, str.list, compressed, version)
+            } else {
+                AinFile(raw, msg.tagPos, msg.end, msg.list, -1, -1, emptyList(), compressed, version)
             }
-            throw IllegalArgumentException("Não achei a seção de falas (MSG0) neste .ain (versão $version).")
         }
 
         private fun indexOf(a: ByteArray, s: String, from: Int): Int {
